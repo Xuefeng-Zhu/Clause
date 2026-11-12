@@ -16,6 +16,12 @@ export function getService(): ContractCardService {
   return service;
 }
 
+export async function resetRuntime(): Promise<void> {
+  await store.reset();
+  gateway = undefined;
+  service = undefined;
+}
+
 export function runtimeInfo() {
   return {
     airwallexMode: config.awx.mode,

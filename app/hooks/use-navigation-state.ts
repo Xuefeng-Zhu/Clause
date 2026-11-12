@@ -18,13 +18,15 @@ export interface NavigationState {
   path?: string;
   publicPath?: string;
   threadId?: string;
+  jobId?: string;
 }
 
 export function useNavigationState() {
   useAgentRouteState<NavigationState>({
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
-    getNavigationState: ({ pathname }) => navigationStateForPath(pathname),
+    getNavigationState: ({ pathname, searchParams }) =>
+      navigationStateForPath(pathname, searchParams),
     getCommandPath: commandPathForNavigation,
   });
 }
@@ -62,13 +64,18 @@ function matchesPathPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
-export function navigationStateForPath(pathname: string): NavigationState {
+export function navigationStateForPath(
+  pathname: string,
+  searchParams?: URLSearchParams,
+): NavigationState {
   const threadId = threadIdFromPath(pathname);
+  const jobId = searchParams?.get("job")?.trim() || undefined;
   return {
     view: viewForPath(pathname),
     path: pathname,
     publicPath: appPathFromLocalRoute(pathname),
     ...(threadId ? { threadId } : {}),
+    ...(jobId ? { jobId } : {}),
   };
 }
 
@@ -92,6 +99,7 @@ function pathForView(view?: string): string {
     case "ask":
       return NEW_CHAT_PATH;
     case "home":
+    case "jobs":
       return HOME_PATH;
     case "database":
       return "/database";

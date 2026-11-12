@@ -2,21 +2,34 @@ import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
+import { getService, runtimeInfo, summarize } from "../server/clause/app.js";
+
 export default defineAction({
   description:
-    "Read the Chat app's current navigation state. Basic navigation is already included in <current-screen>; use this action only when you need a fresh read.",
+    "Read Clause's current screen state, including navigation, runtime mode, job summaries, and the currently selected job. Basic context is already included in <current-screen>; call this when you need a fresh read.",
   schema: z.object({}),
   http: false,
   readOnly: true,
   run: async () => {
-    const navigation = await readAppState("navigation");
+    const navigation = (await readAppState("navigation")) as
+      | { view?: string; path?: string; jobId?: string }
+      | null;
+    const jobs = await getService().listJobs();
+    const summaries = jobs.map(summarize);
+    const selectedId = navigation?.jobId ?? summaries[0]?.id;
+    const activeJob = selectedId ? jobs.find((j) => j.id === selectedId) : jobs[0];
 
-    const screen: Record<string, unknown> = {};
-    if (navigation) screen.navigation = navigation;
-
-    if (Object.keys(screen).length === 0) {
-      return "No application state found. Is the app running?";
-    }
-    return screen;
+    return {
+      ...(navigation ? { navigation } : {}),
+      runtime: runtimeInfo(),
+      jobCount: summaries.length,
+      activeJob: activeJob
+        ? {
+            summary: summarize(activeJob),
+            recentTransactions: activeJob.transactions.slice(-5),
+          }
+        : null,
+      jobs: summaries,
+    };
   },
 });
