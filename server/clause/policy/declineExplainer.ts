@@ -43,7 +43,7 @@ export function explainDecline(txn: IssuingTransaction, rules: CardRule[]): Decl
     transaction_id: txn.transaction_id,
     failure_reason: txn.failure_reason,
     headline,
-    clause_id: rule?.clause.clause_id,
-    clause_quote: rule?.clause.quote,
+    ...(rule?.clause.clause_id !== undefined ? { clause_id: rule.clause.clause_id } : {}),
+    ...(rule?.clause.quote !== undefined ? { clause_quote: rule.clause.quote } : {}),
   };
 }

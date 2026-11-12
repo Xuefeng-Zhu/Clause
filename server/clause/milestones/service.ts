@@ -25,8 +25,8 @@ export class ContractCardService {
     private readonly contractorEmail: string,
   ) {}
 
-  getJob(id: string): Job {
-    return this.store.get(id);
+  async getJob(id: string): Promise<Job> {
+    return await this.store.get(id);
   }
 
   async createJob(src: ContractSource): Promise<Job> {
@@ -43,12 +43,12 @@ export class ContractCardService {
       events: [],
     };
     log(job, "terms_parsed", `Parsed ${terms.contract_ref}: ${terms.milestones.length} milestones, ${terms.currency} ${terms.total_amount}`);
-    return this.store.save(job);
+    return await this.store.save(job);
   }
 
   /** Owner reviewed the extracted terms and clicked "Issue card". */
   async approveTerms(jobId: string): Promise<Job> {
-    const job = this.store.get(jobId);
+    const job = await this.store.get(jobId);
     if (job.status !== "draft") throw new Error("Terms already approved.");
     const problems = [...validateTerms(job.terms), ...job.terms.open_questions];
     if (problems.length) throw new Error(`Resolve before issuing a card: ${problems.join(" | ")}`);
@@ -64,30 +64,30 @@ export class ContractCardService {
     Object.assign(job, { status: "active", cardholder_id: holder.cardholder_id, card_id: card.card_id, releasedMilestoneIds: signing, rules: plan.rules });
     log(job, "terms_approved", "Owner approved extracted terms");
     log(job, "card_issued", `Card ${card.card_id} issued, limit ${job.terms.currency} ${plan.releasedAmount}`, plan.controls);
-    return this.store.save(job);
+    return await this.store.save(job);
   }
 
   /** Sandbox-only: simulate the contractor using the card. */
   async simulateCharge(jobId: string, c: { amount: number; merchant_name: string; mcc: string; currency?: string; at?: string }) {
-    const job = this.activeJob(jobId);
+    const job = await this.activeJob(jobId);
     const txn = await this.gateway.simulateAuthorization({
       card_id: job.card_id!,
       amount: c.amount,
       currency: c.currency ?? job.terms.currency,
       merchant_name: c.merchant_name,
       merchant_category_code: c.mcc,
-      at: c.at,
+      ...(c.at !== undefined ? { at: c.at } : {}),
     });
     const explanation = explainDecline(txn, job.rules);
-    job.transactions.push({ ...txn, explanation });
+    job.transactions.push(explanation ? { ...txn, explanation } : { ...txn });
     if (explanation) log(job, "charge_declined", explanation.headline, explanation);
     else log(job, "charge_approved", `Approved ${txn.currency} ${txn.amount} at ${txn.merchant_name}`);
-    this.store.save(job);
+    await this.store.save(job);
     return { txn, explanation };
   }
 
   async submitProof(jobId: string, files: EvidenceFile[]): Promise<Job> {
-    const job = this.activeJob(jobId);
+    const job = await this.activeJob(jobId);
     const milestone = nextMilestone(job.terms, job.releasedMilestoneIds);
     if (!milestone) throw new Error("All milestones already released.");
     const verdict = await evaluateEvidence(milestone, files);
@@ -102,71 +102,86 @@ export class ContractCardService {
       created_at: new Date().toISOString(),
     };
     log(job, "proof_submitted", `Proof for ${milestone.id}: agent says "${verdict.verdict}". ${verdict.reasoning}`, verdict);
-    return this.store.save(job);
+    return await this.store.save(job);
   }
 
   /** Owner taps Approve. The approval must match what is pending, field for field. */
-  async approveRelease(jobId: string, approval: { approval_id: string; milestone_id: string; amount: number }): Promise<Job> {
-    const job = this.activeJob(jobId);
+  async approveRelease(
+    jobId: string,
+    approval: { approval_id: string; milestone_id: string; amount: number; currency?: string; evidence_sha256?: string },
+  ): Promise<Job> {
+    const job = await this.activeJob(jobId);
     const p = job.pending;
     if (!p || p.kind !== "release_milestone") throw new Error("Nothing pending to release.");
-    if (p.approval_id !== approval.approval_id || p.milestone_id !== approval.milestone_id || p.amount !== approval.amount) {
+    if (
+      p.approval_id !== approval.approval_id ||
+      p.milestone_id !== approval.milestone_id ||
+      p.amount !== approval.amount ||
+      (approval.currency !== undefined && approval.currency !== p.currency) ||
+      (approval.evidence_sha256 !== undefined && approval.evidence_sha256 !== p.evidence_sha256)
+    ) {
       throw new Error("Approval does not match the pending release (stale or tampered). Re-review.");
     }
     if (p.verdict?.verdict === "insufficient") throw new Error("Evidence was judged insufficient. Request new proof, or reject.");
     const released = [...job.releasedMilestoneIds, p.milestone_id!];
     const plan = buildCardPlan(job.terms, released);
     await this.gateway.updateCard(job.card_id!, { authorization_controls: plan.controls });
-    Object.assign(job, { releasedMilestoneIds: released, rules: plan.rules, pending: undefined });
+    Object.assign(job, { releasedMilestoneIds: released, rules: plan.rules });
+    delete job.pending;
     log(job, "release_approved", `Released ${p.milestone_id}. Card limit now ${job.terms.currency} ${plan.releasedAmount}`, plan.controls);
-    return this.store.save(job);
+    return await this.store.save(job);
   }
 
   async rejectPending(jobId: string, reason: string): Promise<Job> {
-    const job = this.activeJob(jobId);
+    const job = await this.activeJob(jobId);
     if (!job.pending) throw new Error("Nothing pending.");
     log(job, "release_rejected", `Owner rejected ${job.pending.kind}: ${reason}`);
-    job.pending = undefined;
-    return this.store.save(job);
+    delete job.pending;
+    return await this.store.save(job);
   }
 
   async proposeChangeOrder(jobId: string, emailText: string): Promise<Job> {
-    const job = this.activeJob(jobId);
+    const job = await this.activeJob(jobId);
     const co = await draftChangeOrder(job.terms, emailText);
     job.pending = { approval_id: `appr_${randomUUID().slice(0, 8)}`, kind: "change_order", currency: job.terms.currency, change_order: co, created_at: new Date().toISOString() };
     log(job, "change_order_drafted", co.summary, co);
-    return this.store.save(job);
+    return await this.store.save(job);
   }
 
   async approveChangeOrder(jobId: string, approval_id: string): Promise<Job> {
-    const job = this.activeJob(jobId);
+    const job = await this.activeJob(jobId);
     const p = job.pending;
     if (!p || p.kind !== "change_order" || p.approval_id !== approval_id || !p.change_order) throw new Error("No matching change order pending.");
     const terms = applyChangeOrder(job.terms, p.change_order);
     const plan = buildCardPlan(terms, job.releasedMilestoneIds);
     await this.gateway.updateCard(job.card_id!, { authorization_controls: plan.controls });
-    Object.assign(job, { terms, rules: plan.rules, pending: undefined });
+    Object.assign(job, { terms, rules: plan.rules });
+    delete job.pending;
     log(job, "change_order_approved", `Change order applied. Deadline ${terms.deadline.date}, total ${terms.currency} ${terms.total_amount}`, plan.controls);
-    return this.store.save(job);
+    return await this.store.save(job);
   }
 
   async freeze(jobId: string, frozen: boolean): Promise<Job> {
-    const job = this.activeJob(jobId);
+    const job = await this.activeJob(jobId);
     await this.gateway.updateCard(job.card_id!, { card_status: frozen ? "INACTIVE" : "ACTIVE" });
     log(job, "card_frozen", frozen ? "Card frozen by owner" : "Card unfrozen by owner");
-    return this.store.save(job);
+    return await this.store.save(job);
   }
 
   async closeJob(jobId: string): Promise<Job> {
-    const job = this.activeJob(jobId);
+    const job = await this.activeJob(jobId);
     await this.gateway.updateCard(job.card_id!, { card_status: "CLOSED" });
     job.status = "closed";
     log(job, "card_closed", "Job closed; card closed");
-    return this.store.save(job);
+    return await this.store.save(job);
   }
 
-  private activeJob(id: string): Job {
-    const job = this.store.get(id);
+  async listJobs(): Promise<Job[]> {
+    return await this.store.list();
+  }
+
+  private async activeJob(id: string): Promise<Job> {
+    const job = await this.store.get(id);
     if (job.status !== "active" || !job.card_id) throw new Error(`Job ${id} is ${job.status}; issue the card first.`);
     return job;
   }

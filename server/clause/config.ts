@@ -1,4 +1,3 @@
-import "dotenv/config";
 
 export type AwxMode = "mock" | "sandbox";
 

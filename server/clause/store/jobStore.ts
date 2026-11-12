@@ -1,5 +1,3 @@
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
-import { dirname } from "node:path";
 import type { IssuingTransaction } from "../airwallex/types.js";
 import type { ChangeOrderProposal } from "../contract/changeOrder.js";
 import type { ContractTerms } from "../contract/schema.js";
@@ -54,34 +52,32 @@ export interface Job {
   pending?: PendingApproval;
   transactions: (IssuingTransaction & { explanation?: DeclineExplanation })[];
   events: JobEvent[];
+  created_at?: string;
 }
 
-/** Tiny JSON-file store. Good enough for a demo; swap for SQLite if needed. */
-export class JobStore {
+/** Where jobs live. The app uses SqlJobStore (drizzle); tests can use MemoryJobStore. */
+export interface JobStore {
+  get(id: string): Promise<Job>;
+  list(): Promise<Job[]>;
+  save(job: Job): Promise<Job>;
+  reset(): Promise<void>;
+}
+
+export class MemoryJobStore implements JobStore {
   private jobs = new Map<string, Job>();
-  constructor(private readonly path?: string) {
-    if (path && existsSync(path)) {
-      for (const j of JSON.parse(readFileSync(path, "utf8")) as Job[]) this.jobs.set(j.id, j);
-    }
-  }
-  get(id: string): Job {
+  async get(id: string): Promise<Job> {
     const j = this.jobs.get(id);
     if (!j) throw new Error(`Job ${id} not found`);
-    return j;
+    return structuredClone(j);
   }
-  list(): Job[] {
-    return [...this.jobs.values()];
+  async list(): Promise<Job[]> {
+    return [...this.jobs.values()].map((j) => structuredClone(j));
   }
-  save(job: Job): Job {
-    this.jobs.set(job.id, job);
-    if (this.path) {
-      mkdirSync(dirname(this.path), { recursive: true });
-      writeFileSync(this.path, JSON.stringify(this.list(), null, 2));
-    }
+  async save(job: Job): Promise<Job> {
+    this.jobs.set(job.id, structuredClone(job));
     return job;
   }
-  reset(): void {
+  async reset(): Promise<void> {
     this.jobs.clear();
-    if (this.path) writeFileSync(this.path, "[]");
   }
 }

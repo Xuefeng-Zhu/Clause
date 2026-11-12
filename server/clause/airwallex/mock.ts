@@ -63,7 +63,7 @@ export class MockIssuingGateway implements IssuingGateway {
       merchant_category_code: req.merchant_category_code,
       transaction_type: reason ? "AUTHORIZATION" : "CLEARING",
       status: reason ? "FAILED" : "APPROVED",
-      failure_reason: reason,
+      ...(reason ? { failure_reason: reason } : {}),
       created_at: req.at ?? new Date().toISOString(),
     };
     if (!reason) this.walletBalance -= req.amount;

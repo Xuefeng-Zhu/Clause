@@ -9,7 +9,7 @@ import { config, assertSandboxCredentials } from "../config.js";
  * - request_id = fresh UUID per operation; reuse ONLY on retry of the same operation
  */
 export class AirwallexClient {
-  private token?: string;
+  private token: string | undefined;
   private tokenExpiresAt = 0;
 
   constructor(
@@ -51,7 +51,7 @@ export class AirwallexClient {
     const res = await fetch(`${this.baseUrl}/api/v1${path}`, {
       method,
       headers: { "content-type": "application/json", ...(await this.authHeader()) },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     // Sandbox rate limits: 20 rps global, 10/endpoint. Back off on 429 (same request_id = safe retry).
     if (res.status === 429 && attempt < 3) {

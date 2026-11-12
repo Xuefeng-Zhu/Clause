@@ -1,9 +1,8 @@
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { config } from "../config.js";
 import { ContractTerms, validateTerms } from "./schema.js";
+import { SAMPLE_TERMS } from "../fixtures.js";
 
 export type ContractSource =
   | { kind: "text"; text: string } // pasted quote or email thread
@@ -86,6 +85,5 @@ async function parseOffline(src: ContractSource): Promise<ContractTerms> {
   if (!text.includes("Q-2026-0412")) {
     throw new Error("Offline mode only understands samples/quote-maple-street-cafe.txt. Set ANTHROPIC_API_KEY to parse other quotes.");
   }
-  const path = fileURLToPath(new URL("../../samples/quote-maple-street-cafe.terms.json", import.meta.url));
-  return ContractTerms.parse(JSON.parse(await readFile(path, "utf8")));
+  return ContractTerms.parse(structuredClone(SAMPLE_TERMS));
 }
