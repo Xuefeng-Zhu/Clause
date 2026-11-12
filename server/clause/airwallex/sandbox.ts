@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 import { AirwallexClient } from "./client.js";
 import type {
   AuthorizationControls,
@@ -31,7 +32,7 @@ export class SandboxIssuingGateway implements IssuingGateway {
   constructor(private readonly awx = new AirwallexClient()) {}
 
   async createDelegateCardholder(email: string): Promise<Cardholder> {
-    const preset = process.env.AWX_CARDHOLDER_ID;
+    const preset = config.awx.cardholderId;
     if (preset) return { cardholder_id: preset, email, type: "DELEGATE", status: "READY" };
     const res = await this.awx.post<any>("/issuing/cardholders/create", { type: "DELEGATE", email });
     return { cardholder_id: res.cardholder_id ?? res.id, email, type: "DELEGATE", status: res.status };
@@ -90,6 +91,7 @@ function normalizeCard(r: any): Card {
 }
 
 function normalizeTxn(r: any, req?: SimulatedAuthRequest): IssuingTransaction {
+  const failureReason = r.failure_reason;
   return {
     transaction_id: r.transaction_id ?? r.id,
     card_id: r.card_id ?? req?.card_id,
@@ -99,7 +101,7 @@ function normalizeTxn(r: any, req?: SimulatedAuthRequest): IssuingTransaction {
     merchant_category_code: r.merchant?.category_code ?? r.merchant_info?.category_code ?? req?.merchant_category_code ?? "",
     transaction_type: r.transaction_type ?? "AUTHORIZATION",
     status: r.status,
-    failure_reason: r.failure_reason || undefined,
+    ...(failureReason ? { failure_reason: failureReason } : {}),
     created_at: r.transaction_date ?? r.created_at ?? new Date().toISOString(),
   };
 }

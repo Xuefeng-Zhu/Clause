@@ -1,25 +1,26 @@
 import { createGateway, type IssuingGateway } from "./airwallex/index.js";
-import { config } from "./config.js";
+import { config, syncScopedCredentials } from "./config.js";
 import { SAMPLE_CHANGE_ORDER_EMAIL, SAMPLE_QUOTE } from "./fixtures.js";
 import { ContractCardService } from "./milestones/service.js";
 import { DEMO_MCC_NAMES } from "./policy/mcc.js";
 import type { Job } from "./store/jobStore.js";
 import { SqlJobStore } from "./store/sqlJobStore.js";
 
-let gateway: IssuingGateway | undefined;
-let service: ContractCardService | undefined;
+let mockGateway: IssuingGateway | undefined;
 const store = new SqlJobStore();
 
-export function getService(): ContractCardService {
-  gateway ??= createGateway();
-  service ??= new ContractCardService(gateway, store, config.demo.contractorEmail);
-  return service;
+export async function getService(): Promise<ContractCardService> {
+  await syncScopedCredentials();
+  const gateway =
+    config.awx.mode === "sandbox"
+      ? createGateway()
+      : (mockGateway ??= createGateway());
+  return new ContractCardService(gateway, store, config.demo.contractorEmail);
 }
 
 export async function resetRuntime(): Promise<void> {
   await store.reset();
-  gateway = undefined;
-  service = undefined;
+  mockGateway = undefined;
 }
 
 export function runtimeInfo() {

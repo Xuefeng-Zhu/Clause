@@ -18,7 +18,7 @@ export default defineAction({
       ? { amount: p.amount, merchant_name: p.merchant_name, mcc: p.mcc, ...("at" in p && p.at !== undefined ? { at: p.at } : {}) }
       : { amount: amount ?? 0, merchant_name: merchantName ?? "Custom merchant", mcc: mcc ?? "5211" };
     if (!charge.amount) throw new Error("Give a preset or an amount.");
-    const svc = getService();
+    const svc = await getService();
     const { txn, explanation } = await svc.simulateCharge(jobId, charge);
     return { approved: !explanation, txn, explanation: explanation ?? null, summary: summarize(await svc.getJob(jobId)) };
   },

@@ -8,7 +8,7 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
-    const jobs = await getService().listJobs();
+    const jobs = await (await getService()).listJobs();
     return { runtime: runtimeInfo(), jobs: jobs.map(summarize) };
   },
 });

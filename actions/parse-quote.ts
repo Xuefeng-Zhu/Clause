@@ -11,7 +11,7 @@ export default defineAction({
   }),
   run: async ({ text, useSample }) => {
     const source = useSample || !text ? SAMPLES.quote : text;
-    const job = await getService().createJob({ kind: "text", text: source });
+    const job = await (await getService()).createJob({ kind: "text", text: source });
     return { summary: summarize(job), terms: job.terms, problems: job.problems, parsedBy: job.parsedBy };
   },
 });

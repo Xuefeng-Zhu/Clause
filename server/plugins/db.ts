@@ -15,6 +15,11 @@ export default runMigrations(
         updated_at TEXT NOT NULL
       )`,
     },
+    {
+      version: 2,
+      name: "cl_jobs_owner_email",
+      sql: `ALTER TABLE cl_jobs ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT ''`,
+    },
   ],
   { table: "clause_migrations" },
 );

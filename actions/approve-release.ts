@@ -14,7 +14,7 @@ export default defineAction({
     evidenceSha256: z.string().optional(),
   }),
   run: async ({ jobId, approvalId, milestoneId, amount, currency, evidenceSha256 }) => {
-    const job = await getService().approveRelease(jobId, {
+    const job = await (await getService()).approveRelease(jobId, {
       approval_id: approvalId,
       milestone_id: milestoneId,
       amount,
