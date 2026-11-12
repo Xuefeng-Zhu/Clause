@@ -1,33 +1,50 @@
-# Chat — Agent Guide
+# Clause — Agent Guide
 
-Chat is the minimal chat-first agent-native app. `/` redirects to shared sign-in, then `/home`, the editable Get started page. Chat lives at `/chat`; new chats start there. Actions carry capabilities; screens exist only for durable workflows.
+Clause turns a contractor's quote into an Airwallex virtual card whose spending cap, merchant-category allowlist, and expiration cutoff are derived deterministically from the contract's clauses. `/` redirects through sign-in to `/home` (the **Contract Jobs** workspace), while full-screen chat lives at `/chat` and `/chat/<threadId>` and the contextual `AgentInspector` sidebar runs alongside `/home`.
 
 ## Skills
 
-Search with `rg --hidden --follow`; read the exact linked guide before deeper work. `.agents/skills/build-an-app/SKILL.md` — start here for vague requests to create a domain app. `.agents/skills/adding-a-feature/SKILL.md` — cross-area feature checklist. Data/integrations: `.agents/skills/actions/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/security/SKILL.md`, `.agents/skills/secrets/SKILL.md`, `.agents/skills/sharing/SKILL.md`. UI: `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`. Agent context/workflows: `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`, `.agents/skills/performance/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`. Framework: `.agents/skills/agent-native-docs/SKILL.md`, `.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`.
+Search with `rg --hidden --follow`; read the exact linked guide before deeper work. `.agents/skills/adding-a-feature/SKILL.md` — cross-area feature checklist. Data/integrations: `.agents/skills/actions/SKILL.md`, `.agents/skills/storing-data/SKILL.md`, `.agents/skills/security/SKILL.md`, `.agents/skills/secrets/SKILL.md`, `.agents/skills/sharing/SKILL.md`. UI: `.agents/skills/frontend-design/SKILL.md`, `.agents/skills/shadcn-ui/SKILL.md`, `.agents/skills/client-side-routing/SKILL.md`. Agent context/workflows: `.agents/skills/context-awareness/SKILL.md`, `.agents/skills/real-time-sync/SKILL.md`, `.agents/skills/reliable-mutations/SKILL.md`, `.agents/skills/performance/SKILL.md`, `.agents/skills/delegate-to-agent/SKILL.md`. Framework: `.agents/skills/agent-native-docs/SKILL.md`, `.agents/skills/agent-native-toolkit/SKILL.md`, `.agents/skills/customizing-agent-native/SKILL.md`.
 
-Use local docs only (no web research): `pnpm action docs-search --query "<topic>"`, `pnpm action docs-search --slug "<slug>"`, `pnpm action docs-search --list`, `pnpm action source-search --query "<pattern>"`, `pnpm action source-search --path <path>`, or `pnpm action source-search --list`. For external-agent integrations, read `pnpm action docs-search --slug "external-agents"`.
+Use local docs only (no web research): `pnpm action docs-search --query "<topic>"`, `pnpm action docs-search --slug "<slug>"`, `pnpm action docs-search --list`, `pnpm action source-search --query "<pattern>"`, `pnpm action source-search --path <path>`, or `pnpm action source-search --list`.
 
 ## Core rules
 
-- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
-- Normal app data must flow through actions. Keep actions deterministic and focused; use agent chat/AgentSidebar for AI work and follow-ups in the same thread. Keep structured state in SQL and large files in configured storage; persist references only.
-- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver. Never hardcode credentials, webhook URLs, or private/customer data.
-- Never fabricate. Report failures and recover; verify writes by reading the row or screen. Navigation is in `<current-screen>`; use `view-screen` for fresh visible-record details.
+- **Strict model / code / owner boundary:**
+  - Model reads unstructured inputs (`parse-quote`, `submit-proof`, `draft-change-order`) and explains declines citing contract `clause_id`s.
+  - Deterministic code (`server/clause/policy/cardRules.ts`, `server/clause/milestones/service.ts`) computes all dollar limits, MCC allowlists, `active_to` deadlines, evidence SHA-256 bindings, and decline explanations. Never invent amounts or limits not returned by an action.
+  - Owner approvals (`approve-terms`, `approve-release`, `approve-change-order`, `close-job`) grant or terminate spending power. Only invoke them from chat when the owner explicitly instructs approval in the conversation.
+- **UI responsiveness:** Acknowledge user actions within 100 ms (never > 400 ms), reject overlapping mutations on the active slot, and allow client-side cancellation to free the slot.
+- **Data & credentials:** All jobs live in PostgreSQL/PGlite table `cl_jobs` (`server/db/schema.ts`), scoped per authenticated user via `owner_email` in `SqlJobStore` (`server/clause/store/sqlJobStore.ts`). Optional external keys (`AWX_CLIENT_ID`, `AWX_API_KEY`, `AWX_CARDHOLDER_ID`, `ANTHROPIC_API_KEY`) are registered in `server/plugins/secrets.ts` and resolved per-request via `resolveSecretDetailed` in `server/clause/config.ts` — never read user credentials from `process.env`.
+- **Branding:** Keep `server/plugins/agent-native-email-branding.ts` aligned (`app.name: "Clause"`, `app.homePath: "/home"`).
 
-For custom branding, keep `server/plugins/agent-native-email-branding.ts` aligned: `app.name` appears in transactional email and optional `app.logoUrl` must be an absolute HTTPS URL.
+## Actions
 
-## Application state
+Both the UI (`useActionQuery` / `useActionMutation` in `app/components/clause/ClauseJobWorkspace.tsx`) and the Clause agent (`server/plugins/agent-chat.ts`) share these actions:
 
-- `navigation` describes the view and selected ids. Chat is `chat` at `/chat` and `/chat/<threadId>`; the Get started page is `home` at `/home`; `/` opens shared sign-in/signup.
-- Use `navigate` when supported and `view-screen` for a fresh read of visible details; basic navigation is already in `<current-screen>`.
+| Action | HTTP | Args | Purpose |
+| --- | --- | --- | --- |
+| `list-jobs` | `GET` | `{}` | List current user's contract jobs (`summarize`) + Airwallex/model runtime info |
+| `get-job` | `GET` | `{ jobId }` | Read full `Job` document (terms, verbatim clauses, derived `CardRule[]`, pending approval, transactions, events) |
+| `parse-quote` | `POST` | `{ text?, useSample? }` | Extract `ContractTerms` + deterministic validation problems; creates a `draft` job |
+| `approve-terms` | `POST` | `{ jobId }` | Owner approval: issue Airwallex virtual card at signing-milestone (`M1`) `ALL_TIME` limit |
+| `simulate-charge` | `POST` | `{ jobId, preset?, amount?, merchantName?, mcc? }` | Simulate card swipe (`lumber`, `lunch`, `home-depot`, `after-deadline`, or custom) and return clause-cited `DeclineExplanation` |
+| `submit-proof` | `POST` | `{ jobId, files }` | Check required evidence kinds in code, evaluate files, and stage a SHA-256-bound `release_milestone` pending approval |
+| `approve-release` | `POST` | `{ jobId, approvalId, milestoneId, amount, currency?, evidenceSha256? }` | Owner approval: verify exact field-for-field match against pending release and raise card `ALL_TIME` limit |
+| `draft-change-order` | `POST` | `{ jobId, emailText?, useSample? }` | Draft a `ChangeOrderProposal` from contractor email and stage a `change_order` pending approval |
+| `approve-change-order` | `POST` | `{ jobId, approvalId }` | Owner approval: apply change order to terms and re-derive Airwallex card limit and `active_to` |
+| `reject-pending` | `POST` | `{ jobId, reason? }` | Reject the current pending milestone release or change order without modifying card controls |
+| `freeze-card` | `POST` | `{ jobId, frozen }` | Toggle Airwallex card between `INACTIVE` (frozen) and `ACTIVE` |
+| `close-job` | `POST` | `{ jobId }` | Permanently close the Airwallex virtual card (`CLOSED`) and mark job `closed` |
+| `reset-demo` | `POST` | `{}` | Delete the current user's demo jobs and reset the in-memory mock gateway |
+| `view-screen` | `false` | `{}` | Return `navigation`, `runtime`, `activeJob` summary + recent transactions for `<current-screen>` |
+| `navigate` | `false` | `{ view, path?, threadId? }` | Navigate current browser tab (`home` / `jobs` -> `/home`, `chat` -> `/chat`) |
 
-## Building a domain app
+## Application state & UI selectors
 
-Choose the primary workflow and route before editing. Add a domain route under `app/routes/` and set `app.homePath` in `server/plugins/agent-native-email-branding.ts` with `defineAppConfig`. The default Get started page lives at `/home`, and Chat stays at `/chat`; edit `app/routes/home.tsx` when replacing that page with a domain-specific home. Add a static link in `app/components/layout/Sidebar.tsx` before `ChatThreadsSection`; `Header.tsx` uses `APP_TITLE` elsewhere. Shared sidebar and AgentInspector remain.
+- `navigation` tracks `{ view, path, publicPath, jobId?, threadId? }` via `app/hooks/use-navigation-state.ts`; selected job is synced to `/home?job=<jobId>`.
+- Stable DOM hooks on `/home` (`app/components/clause/ClauseJobWorkspace.tsx`): `#parse`, `#approveTerms`, `[data-charge]`, `#proofFiles`, `#proofKind`, `#submitProof`, `#draftCo`, `#approveRelease`, `#approveCo`, `#resetDemo`.
 
-Use `adding-a-feature` for functional parity and `frontend-design` for a user-facing screen. Keep feature guidance here; do not rewrite `README.md` or `DESIGN.md`. After all edits, run one typecheck, one doctor check, and one browser smoke of the primary workflow, including overlap rejection, cancellation freeing the slot, and authenticated landing. Skip production build and extra test suites.
+## Verification
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; for supported customization, read `customizing-agent-native`.
-
-- Guarded verification: run `pnpm agent-native:doctor`; fix findings before done.
+Run `pnpm typecheck`, `pnpm test`, `pnpm build`, and `pnpm agent-native:doctor` — fix all findings before finishing.
