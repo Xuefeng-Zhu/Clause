@@ -2,10 +2,11 @@ import { resolveSecretDetailed } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 export type AwxMode = "mock" | "sandbox";
+export type MetalMode = "mock" | "testnet";
 
-const envAwxClientId = process.env.AWX_CLIENT_ID || undefined;
-const envAwxApiKey = process.env.AWX_API_KEY || undefined;
-const envAwxCardholderId = process.env.AWX_CARDHOLDER_ID || undefined;
+const envAwxClientId = process.env.AWX_CLIENT_ID || undefined; // guard:allow-no-env-credentials — optional local/sandbox deploy fallback
+const envAwxApiKey = process.env.AWX_API_KEY || undefined; // guard:allow-no-env-credentials — optional local/sandbox deploy fallback
+const envAwxCardholderId = process.env.AWX_CARDHOLDER_ID || undefined; // guard:allow-no-env-credentials — optional local/sandbox deploy fallback
 const hasEnvAwx = Boolean(envAwxClientId && envAwxApiKey);
 
 export const config = {
@@ -16,6 +17,26 @@ export const config = {
     baseUrl: "https://api.sandbox.airwallex.com",
     cardholderId: envAwxCardholderId as string | undefined,
   },
+  metal: {
+    get mode(): MetalMode {
+      return resolveMetalMode();
+    },
+    get dir(): string {
+      return process.env.METAL_DIR || "/workspace/work/metal"; // guard:allow-no-env-credentials — deploy-level directory outside repo
+    },
+    get cliPrefix(): string {
+      return process.env.METAL_CLI_PREFIX || "/workspace/tools/metal"; // guard:allow-no-env-credentials — deploy-level CLI installation prefix
+    },
+    get account(): string | undefined {
+      return process.env.METAL_ACCOUNT || undefined; // guard:allow-no-env-credentials — public principal account address on Metal testnet
+    },
+    get contractorAddress(): string | undefined {
+      return process.env.METAL_CONTRACTOR_ADDRESS || undefined; // guard:allow-no-env-credentials — public contractor address on Metal testnet
+    },
+    get rpcUrl(): string | undefined {
+      return process.env.METAL_RPC_URL || undefined; // guard:allow-no-env-credentials — deployment Metal testnet RPC endpoint
+    },
+  },
   anthropic: {
     apiKey: undefined as string | undefined,
     model: "claude-sonnet-4-5",
@@ -25,6 +46,13 @@ export const config = {
     contractorEmail: "contractor@example.com",
   },
 };
+
+export function resolveMetalMode(): MetalMode {
+  const modeEnv = process.env.METAL_MODE; // guard:allow-no-env-credentials — deployment mode toggle
+  const rpcUrl = process.env.METAL_RPC_URL; // guard:allow-no-env-credentials — deployment Metal testnet RPC endpoint
+  const account = process.env.METAL_ACCOUNT; // guard:allow-no-env-credentials — public principal account address on Metal testnet
+  return modeEnv === "testnet" && Boolean(rpcUrl && account) ? "testnet" : "mock";
+}
 
 async function readScopedSecret(key: string): Promise<string | undefined> {
   const res = await resolveSecretDetailed(key);
