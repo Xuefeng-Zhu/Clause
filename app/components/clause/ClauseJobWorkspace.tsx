@@ -51,6 +51,7 @@ import { ExpenseReportSheet } from "./ExpenseReportSheet";
 import { MilestoneBar } from "./MilestoneBar";
 import { EmptyJobState, NewJobDialog } from "./NewJobDialog";
 import { SandboxToolsDrawer } from "./SandboxToolsDrawer";
+import { MetalMandatePanel, type MandateStateLite } from "./MetalMandatePanel";
 import { ContractorPhone } from "./ContractorPhone";
 import {
   formatCurrency,
@@ -201,6 +202,9 @@ export function ClauseJobWorkspace() {
   const freezeCardMut = useActionMutation("freeze-card");
   const closeJobMut = useActionMutation("close-job");
   const resetDemoMut = useActionMutation("reset-demo");
+  const metalOverpayMut = useActionMutation("metal-overpay-attempt");
+  const metalWrongPayeeMut = useActionMutation("metal-wrong-payee");
+  const metalVerifyMut = useActionMutation("metal-verify");
 
   // UI sheets / dialogs / clause highlight state
   const [quoteText, setQuoteText] = useState("");
@@ -649,6 +653,29 @@ export function ClauseJobWorkspace() {
     );
   }
 
+  async function handleMetalAction(which: "overpay" | "wrongPayee" | "verify") {
+    if (!activeJobId) return;
+    const jobId = activeJobId;
+    await runExclusive(
+      which === "verify"
+        ? "Verifying mandate on chain…"
+        : which === "overpay"
+          ? "Attempting over-cap payout…"
+          : "Attempting payout to wrong wallet…",
+      (): Promise<unknown> =>
+        which === "verify"
+          ? metalVerifyMut.mutateAsync({ jobId })
+          : which === "overpay"
+            ? metalOverpayMut.mutateAsync({ jobId })
+            : metalWrongPayeeMut.mutateAsync({ jobId }),
+      (res) => {
+        const msg = (res as { message?: string } | undefined)?.message;
+        toast.info(msg ?? "Metal mandate updated.");
+        void jobQuery.refetch();
+      },
+    );
+  }
+
   async function handleResetWorkspace() {
     await runExclusive(
       "Resetting workspace…",
@@ -1038,6 +1065,12 @@ export function ClauseJobWorkspace() {
                   onApproveException={() => void handleApproveException()}
                   onRejectPending={() => void handleRejectPending()}
                 />
+                {(job as unknown as { mandate?: MandateStateLite } | null)?.mandate ? (
+                  <MetalMandatePanel
+                    mandate={(job as unknown as { mandate: MandateStateLite }).mandate}
+                    onSelectClause={handleSelectClause}
+                  />
+                ) : null}
               </div>
             </div>
           </div>
@@ -1093,6 +1126,8 @@ export function ClauseJobWorkspace() {
         onRunPresetCharge={(preset) => void handleRunPresetCharge(preset)}
         onRunCustomCharge={(input) => void handleRunCustomCharge(input)}
         onResetWorkspace={() => void handleResetWorkspace()}
+        hasMandate={Boolean((job as unknown as { mandate?: unknown } | null)?.mandate)}
+        onMetalAction={(which) => void handleMetalAction(which)}
         phoneVisible={phoneVisible}
         onPhoneVisibleChange={setPhoneVisible}
       />

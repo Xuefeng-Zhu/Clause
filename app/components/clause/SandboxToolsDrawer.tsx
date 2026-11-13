@@ -151,6 +151,8 @@ interface SandboxToolsDrawerProps {
     amount: number;
   }) => void;
   onResetWorkspace: () => void;
+  hasMandate?: boolean;
+  onMetalAction?: (which: "overpay" | "wrongPayee" | "verify") => void;
   phoneVisible: boolean;
   onPhoneVisibleChange: (visible: boolean) => void;
 }
@@ -166,6 +168,8 @@ export function SandboxToolsDrawer({
   onRunPresetCharge,
   onRunCustomCharge,
   onResetWorkspace,
+  hasMandate = false,
+  onMetalAction,
   phoneVisible,
   onPhoneVisibleChange,
 }: SandboxToolsDrawerProps) {
@@ -263,6 +267,41 @@ export function SandboxToolsDrawer({
               ))}
             </div>
           </div>
+
+          {!isPolicy ? (
+            <div className="space-y-2">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">
+                Metal payout mandate
+              </div>
+              {!hasMandate ? (
+                <div className="text-[11px] text-stone-500">
+                  Approve terms to issue the on-chain payout mandate.
+                </div>
+              ) : null}
+              <div className="grid grid-cols-1 gap-2">
+                {(
+                  [
+                    ["metalOverpay", "overpay", "Pay contractor over the cap"],
+                    ["metalWrongPayee", "wrongPayee", "Pay a different wallet"],
+                    ["metalVerify", "verify", "Verify mandate on chain"],
+                  ] as const
+                ).map(([id, which, label]) => (
+                  <Button
+                    key={id}
+                    id={id}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!hasMandate || busy}
+                    onClick={() => onMetalAction?.(which)}
+                    className="justify-start border-[#DCD5C6] bg-white text-xs text-stone-800"
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {/* Custom charge disclosure */}
           <div className="rounded-xl border border-[#E6E0D4] bg-white/80">
