@@ -125,10 +125,10 @@ async function callGemini(req: ToolCallRequest): Promise<unknown> {
   // Gemini returns 429/503 ("high demand") in bursts; retry transient errors with backoff.
   let res!: Response;
   let json: GeminiJson = {};
-  // Two tries on the primary model, then two on the fallback model (same key).
-  const models = [config.gemini.model, config.gemini.model, config.gemini.fallbackModel, config.gemini.fallbackModel];
+  // Two tries on the primary model, then one on each fallback model (same key, separate capacity).
+  const models = [config.gemini.model, config.gemini.model, ...config.gemini.fallbackModels.filter((m) => m !== config.gemini.model)];
   for (let attempt = 0; attempt < models.length; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * attempt));
+    if (attempt > 0) await new Promise((r) => setTimeout(r, attempt === 1 ? 1000 : 300));
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${models[attempt]}:generateContent`;
     res = await fetch(url, {
       method: "POST",

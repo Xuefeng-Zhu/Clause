@@ -19,17 +19,17 @@ describe("model outage fallback", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const res = await parseContract({ kind: "text", text: quote });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(2 + config.gemini.fallbackModels.length);
     expect(res.parsedBy).toBe("offline-fixture");
     expect(res.problems).toEqual([]);
   }, 20_000);
 
-  it("uses the fallback Gemini model when the primary is overloaded", async () => {
+  it("walks the fallback Gemini models when the primary is overloaded", async () => {
     config.gemini.apiKey = "test-key";
     const urls: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       urls.push(url);
-      if (url.includes(config.gemini.fallbackModel)) {
+      if (url.includes(`/${config.gemini.fallbackModels[1]}:`)) {
         return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ functionCall: { name: "x", args: { ok: true } } }] } }] }), { status: 200 });
       }
       return new Response(JSON.stringify({ error: { message: "high demand" } }), { status: 503 });
@@ -38,7 +38,8 @@ describe("model outage fallback", () => {
     const out = await callTool({ system: "s", content: "c", toolName: "x", description: "d", schema: { type: "object" }, maxTokens: 10 });
     expect(out).toEqual({ ok: true });
     expect(urls[0]).toContain(config.gemini.model);
-    expect(urls[2]).toContain(config.gemini.fallbackModel);
+    expect(urls[2]).toContain(config.gemini.fallbackModels[0]);
+    expect(urls[3]).toContain(config.gemini.fallbackModels[1]);
   }, 20_000);
 
   it("still surfaces the model error for quotes the offline path can't read", async () => {
