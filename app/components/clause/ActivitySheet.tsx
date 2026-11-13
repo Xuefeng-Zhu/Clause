@@ -98,6 +98,28 @@ function eventActorAndIcon(type: JobEvent["type"]) {
         Icon: IconLock,
         tone: "bg-stone-200/90 text-stone-700",
       };
+    case "mandate_issued":
+    case "mandate_replaced":
+    case "mandate_verified":
+    case "metal_payout":
+    case "treasury_deposit":
+      return {
+        actor: "Metal testnet",
+        Icon: IconShieldCheck,
+        tone: "bg-[#0F7B55]/15 text-[#0F7B55]",
+      };
+    case "metal_refused":
+      return {
+        actor: "Metal mandate",
+        Icon: IconX,
+        tone: "bg-rose-500/15 text-rose-700",
+      };
+    default:
+      return {
+        actor: "Clause",
+        Icon: IconFileText,
+        tone: "bg-stone-200/80 text-stone-700",
+      };
   }
 }
 

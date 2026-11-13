@@ -185,7 +185,13 @@ export interface JobEvent {
     | "exception_approved"
     | "exception_used"
     | "card_frozen"
-    | "card_closed";
+    | "card_closed"
+    | "mandate_issued"
+    | "metal_payout"
+    | "metal_refused"
+    | "mandate_replaced"
+    | "mandate_verified"
+    | "treasury_deposit";
   detail: string;
   data?: unknown;
 }
