@@ -122,25 +122,39 @@ async function callGemini(req: ToolCallRequest): Promise<unknown> {
     error?: { message?: string };
     candidates?: { content?: { parts?: { functionCall?: { name: string; args: unknown } }[] } }[];
   };
-  // Gemini returns 429/503 ("high demand") in bursts; retry transient errors with backoff.
-  let res!: Response;
-  let json: GeminiJson = {};
-  // Two tries on the primary model, then one on each fallback model (same key, separate capacity).
+  // Gemini returns 429/503 ("high demand") in bursts, and under load a call can hang. Retry
+  // transient errors and timeouts on the next model (same key, separate capacity), within an
+  // overall budget so the caller can fall back to the offline path instead of spinning.
+  const perAttemptMs = Number(process.env.GEMINI_ATTEMPT_TIMEOUT_MS) || 25_000;
+  const budgetMs = Number(process.env.GEMINI_BUDGET_MS) || 60_000;
+  const started = Date.now();
   const models = [config.gemini.model, config.gemini.model, ...config.gemini.fallbackModels.filter((m) => m !== config.gemini.model)];
+  let lastError = "unknown";
   for (let attempt = 0; attempt < models.length; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, attempt === 1 ? 1000 : 300));
+    const remaining = budgetMs - (Date.now() - started);
+    if (remaining < 3_000) break;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${models[attempt]}:generateContent`;
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-goog-api-key": config.gemini.apiKey! },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120_000),
-    });
-    json = (await res.json().catch(() => ({}))) as GeminiJson;
-    if (res.ok || ![429, 500, 502, 503, 504].includes(res.status)) break;
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": config.gemini.apiKey! },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(Math.min(perAttemptMs, remaining)),
+      });
+    } catch (err) {
+      lastError = `${models[attempt]}: ${(err as Error).message}`; // timeout or network error: try the next model
+      continue;
+    }
+    const json = (await res.json().catch(() => ({}))) as GeminiJson;
+    if (res.ok) {
+      const call = json.candidates?.[0]?.content?.parts?.find((p) => p.functionCall)?.functionCall;
+      if (!call) throw new Error(`Gemini did not call ${req.toolName}.`);
+      return call.args;
+    }
+    lastError = `${res.status}: ${json.error?.message ?? "unknown"}`;
+    if (![429, 500, 502, 503, 504].includes(res.status)) break;
   }
-  if (!res.ok) throw new Error(`Gemini error ${res.status}: ${json.error?.message ?? "unknown"}`);
-  const call = json.candidates?.[0]?.content?.parts?.find((p) => p.functionCall)?.functionCall;
-  if (!call) throw new Error(`Gemini did not call ${req.toolName}.`);
-  return call.args;
+  throw new Error(`Gemini error ${lastError}`);
 }

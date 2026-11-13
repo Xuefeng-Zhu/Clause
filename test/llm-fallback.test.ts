@@ -42,6 +42,17 @@ describe("model outage fallback", () => {
     expect(urls[3]).toContain(config.gemini.fallbackModels[1]);
   }, 20_000);
 
+  it("moves past a hanging model and falls back offline within the budget", async () => {
+    config.gemini.apiKey = "test-key";
+    process.env.GEMINI_ATTEMPT_TIMEOUT_MS = "50";
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_res, rej) => {
+      init.signal?.addEventListener("abort", () => rej(new Error("The operation was aborted due to timeout")));
+    })));
+    const res = await parseContract({ kind: "text", text: quote });
+    delete process.env.GEMINI_ATTEMPT_TIMEOUT_MS;
+    expect(res.parsedBy).toBe("offline-fixture");
+  }, 20_000);
+
   it("still surfaces the model error for quotes the offline path can't read", async () => {
     config.gemini.apiKey = "test-key";
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { message: "bad" } }), { status: 400 })));
