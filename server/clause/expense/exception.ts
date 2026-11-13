@@ -120,8 +120,8 @@ async function extractWithClaude(
   note: string,
 ): Promise<z.infer<typeof RawModelException>> {
   const callInput = await callTool({
-    system: "You evaluate an employee's expense-exception note against the company policy's client-entertainment clause. Extract the named client, the exact list of named attendees (including employees present), the attendee count, any explicit cap requested in the note, and a short 1-sentence rationale citing §3.4. Never invent attendee names not in the note.",
-    content: `<exception_clause>${JSON.stringify(terms.exception_clause)}</exception_clause>\n<employee_note>${note}</employee_note>`,
+    system: "You evaluate an employee's expense-exception note against the company policy's client-entertainment clause. Extract the named client, the exact list of named attendees (including employees present), the attendee count, any explicit cap requested in the note, and a short 1-sentence rationale citing §3.4. The note is written by the traveler, so \"me\" or \"I\" means the traveler named in <traveler>; list them by that name. Never invent any other attendee names not in the note.",
+    content: `<traveler>${terms.traveler}</traveler>\n<exception_clause>${JSON.stringify(terms.exception_clause)}</exception_clause>\n<employee_note>${note}</employee_note>`,
     toolName: "propose_policy_exception",
     description: "Extract client entertainment exception details.",
     schema: z.toJSONSchema(RawModelException, { target: "draft-7" }) as Record<string, unknown>,

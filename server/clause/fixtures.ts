@@ -121,7 +121,7 @@ Approved budget: USD 2,000.00
 `;
 
 export const SAMPLE_EXCEPTION_NOTE =
-  "Client dinner with Lone Star Logistics: Dana Ruiz (VP Ops), Kevin Tran (Ops lead), plus me and Marcus Lee. 4 attendees.";
+  "Client dinner with Lone Star Logistics: Dana Ruiz (VP Ops), Kevin Tran (Ops lead), plus me (Priya Shah) and Marcus Lee. 4 attendees.";
 
 export const SAMPLE_POLICY_TERMS = {
   policy_ref: "TR-2611",
