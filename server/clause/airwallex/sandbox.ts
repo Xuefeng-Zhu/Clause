@@ -8,6 +8,8 @@ import type {
   IssuingGateway,
   IssuingTransaction,
   SimulatedAuthRequest,
+  SimulatedDeposit,
+  SimulatedDepositRequest,
 } from "./types.js";
 
 /**
@@ -165,6 +167,49 @@ export class SandboxIssuingGateway implements IssuingGateway {
         .catch(() => undefined);
     }
     return txn;
+  }
+
+  async simulateDeposit(req: SimulatedDepositRequest): Promise<SimulatedDeposit> {
+    const accountsRes = await this.awx.get<any>("/global_accounts");
+    const items: any[] = accountsRes.items ?? [];
+    const usdAccount =
+      items.find(
+        (a) =>
+          String(a.status ?? "").toUpperCase() === "ACTIVE" &&
+          (a.currency === "USD" ||
+            (Array.isArray(a.supported_features) &&
+              a.supported_features.some((f: any) => f.currency === "USD"))),
+      ) ??
+      items.find(
+        (a) =>
+          a.currency === "USD" ||
+          (Array.isArray(a.supported_features) &&
+            a.supported_features.some((f: any) => f.currency === "USD")),
+      ) ??
+      items[0];
+
+    const globalAccountId = usdAccount?.id ?? usdAccount?.global_account_id;
+    if (!globalAccountId) {
+      throw new Error("No USD global account available in Airwallex sandbox for deposit simulation.");
+    }
+
+    const payerName = `Metal payout ${req.reference.slice(0, 10)}`;
+    const res = await this.awx.post<any>("/simulation/deposit/create", {
+      global_account_id: globalAccountId,
+      amount: req.amount,
+      payer_name: payerName,
+    });
+
+    return {
+      deposit_id: String(res.id ?? res.deposit_id ?? `dep_${Date.now()}`),
+      amount: Number(res.amount ?? req.amount),
+      currency: String(res.currency ?? req.currency ?? "USD"),
+      payer_name: payerName,
+      reference: req.reference,
+      global_account_id: String(globalAccountId),
+      status: String(res.status ?? "SETTLED"),
+      created_at: String(res.created_at ?? new Date().toISOString()),
+    };
   }
 
   async listTransactions(card_id: string): Promise<IssuingTransaction[]> {

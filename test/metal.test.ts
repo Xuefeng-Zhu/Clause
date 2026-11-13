@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { MockIssuingGateway } from "../server/clause/airwallex/mock.js";
 import { ContractTerms } from "../server/clause/contract/schema.js";
 import {
   MOCK_CONTRACTOR_ADDRESS,
@@ -246,5 +247,20 @@ describe("parseMetalCliOutput", () => {
     expect(verified.mandateId).toBe(
       "0x9c0f39190e788272006c9f4fcd28ea6a060d47c181e2f5418b3b2fb3deb5a381",
     );
+  });
+});
+
+describe("Airwallex simulateDeposit treasury mirror", () => {
+  it("records simulated USD deposit with Metal payout payer_name prefix", async () => {
+    const gw = new MockIssuingGateway(10_000);
+    const dep = await gw.simulateDeposit({
+      amount: 5000,
+      reference: "0x5bc5cfedec4aef1bafbbfdfd4878078fd3498304",
+    });
+    expect(dep.amount).toBe(5000);
+    expect(dep.currency).toBe("USD");
+    expect(dep.payer_name).toBe("Metal payout 0x5bc5cfed");
+    expect(gw.deposits).toHaveLength(1);
+    expect(gw.walletBalance).toBe(15_000);
   });
 });

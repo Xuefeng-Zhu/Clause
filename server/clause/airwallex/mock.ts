@@ -8,6 +8,8 @@ import type {
   IssuingGateway,
   IssuingTransaction,
   SimulatedAuthRequest,
+  SimulatedDeposit,
+  SimulatedDepositRequest,
 } from "./types.js";
 
 /**
@@ -19,6 +21,7 @@ export class MockIssuingGateway implements IssuingGateway {
   readonly mode = "mock" as const;
   private cards = new Map<string, Card>();
   private txns: IssuingTransaction[] = [];
+  public deposits: SimulatedDeposit[] = [];
   constructor(public walletBalance = 25_000) {}
 
   async createDelegateCardholder(email: string): Promise<Cardholder> {
@@ -69,6 +72,22 @@ export class MockIssuingGateway implements IssuingGateway {
     if (!reason) this.walletBalance -= req.amount;
     this.txns.push(txn);
     return structuredClone(txn);
+  }
+
+  async simulateDeposit(req: SimulatedDepositRequest): Promise<SimulatedDeposit> {
+    const dep: SimulatedDeposit = {
+      deposit_id: `dep_mock_${randomUUID().slice(0, 8)}`,
+      amount: req.amount,
+      currency: req.currency ?? "USD",
+      payer_name: `Metal payout ${req.reference.slice(0, 10)}`,
+      reference: req.reference,
+      global_account_id: "ga_mock_usd_01",
+      status: "SETTLED",
+      created_at: new Date().toISOString(),
+    };
+    this.deposits.push(dep);
+    this.walletBalance += req.amount;
+    return structuredClone(dep);
   }
 
   async listTransactions(card_id: string): Promise<IssuingTransaction[]> {

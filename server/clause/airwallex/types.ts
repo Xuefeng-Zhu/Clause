@@ -71,6 +71,25 @@ export interface IssuingTransaction {
   created_at: string;
 }
 
+export interface SimulatedDepositRequest {
+  /** Deposit amount in major units (USD = USDZ / scale). */
+  amount: number;
+  /** Reference or transaction hash used in payer_name. */
+  reference: string;
+  currency?: string;
+}
+
+export interface SimulatedDeposit {
+  deposit_id: string;
+  amount: number;
+  currency: string;
+  payer_name: string;
+  reference: string;
+  global_account_id?: string;
+  status: string;
+  created_at: string;
+}
+
 /** Everything the app needs from Airwallex. Mock and sandbox both implement it. */
 export interface IssuingGateway {
   readonly mode: "mock" | "sandbox";
@@ -87,5 +106,7 @@ export interface IssuingGateway {
   ): Promise<Card>;
   /** Sandbox-only simulation, kept behind this interface per the builder guide. */
   simulateAuthorization(req: SimulatedAuthRequest): Promise<IssuingTransaction>;
+  /** Treasury mirror: record a simulated deposit on the first USD global account. */
+  simulateDeposit(req: SimulatedDepositRequest): Promise<SimulatedDeposit>;
   listTransactions(card_id: string): Promise<IssuingTransaction[]>;
 }
