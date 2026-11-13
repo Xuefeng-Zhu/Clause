@@ -100,9 +100,11 @@ export function EnforcementPanel({
               <IconShieldCheck className="size-4" />
               Ready to issue virtual card
             </span>
-            <span className="inline-flex items-center select-none" aria-hidden="true">
-              <span className="size-3.5 rounded-full bg-[#EB001B]/80" />
-              <span className="-ms-1.5 size-3.5 rounded-full bg-[#F79E1B]/80 mix-blend-multiply" />
+            <span
+              aria-label="Visa"
+              className="select-none font-sans text-[13px] font-extrabold italic leading-none tracking-tight text-[#1A1F71]"
+            >
+              VISA
             </span>
           </div>
           <div className="mt-2.5 flex items-baseline justify-between gap-2">

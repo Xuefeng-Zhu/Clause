@@ -84,6 +84,31 @@ export class SandboxIssuingGateway implements IssuingGateway {
   }
 
   async simulateAuthorization(req: SimulatedAuthRequest): Promise<IssuingTransaction> {
+    // The sandbox authorizes against its own clock and ignores a simulated time.
+    // To demo a swipe "after the deadline" for real, briefly move the card's active_to
+    // into the past (so Airwallex itself returns OUT_OF_ALLOWED_TIME_RANGE), then restore it.
+    const at = req.at ? Date.parse(req.at) : NaN;
+    if (!Number.isNaN(at) && at > Date.now()) {
+      const card = await this.getCard(req.card_id);
+      const original = card.authorization_controls;
+      if (original.active_to && at > Date.parse(original.active_to)) {
+        const past = new Date(Date.now() - 60_000).toISOString();
+        const pastFrom = new Date(Date.now() - 120_000).toISOString();
+        await this.updateCard(req.card_id, {
+          authorization_controls: { ...original, active_from: pastFrom, active_to: past },
+        });
+        try {
+          const { at: _ignored, ...rest } = req;
+          return await this.simulateNow(rest);
+        } finally {
+          await this.updateCard(req.card_id, { authorization_controls: original }).catch(() => undefined);
+        }
+      }
+    }
+    return this.simulateNow(req);
+  }
+
+  private async simulateNow(req: SimulatedAuthRequest): Promise<IssuingTransaction> {
     const res = await this.awx.post<any>("/simulation/issuing/create", {
       card_id: req.card_id,
       transaction_amount: req.amount,

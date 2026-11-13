@@ -3,7 +3,7 @@
 **Escrow without the escrow.** Clause reads a contractor quote, extracts its payment milestones and spending rules with verbatim clause citations, and turns them into deterministic controls on a dedicated Airwallex virtual card.
 
 - **Cumulative milestone cap (`ALL_TIME`):** Card spending starts at the signing deposit (`M1`) and rises only when progress proof passes review and the owner approves a bound release.
-- **Merchant allowlist (`allowed_merchant_categories`):** Mapped in code from the contract's allowed-spend clause (`§2.1`) to 4-digit MCCs; restaurants, travel, and fuel decline automatically.
+- **Merchant allowlist (`allowed_merchant_categories`):** Mapped in code from the contract's allowed-spend clause (`§2.1`) to 4-digit MCCs; restaurants, travel, and fuel decline automatically, and those declines cite the prohibited-spend clause (`§2.2`).
 - **Schedule enforcement (`active_to`):** Derived from the substantial-completion deadline (`§3.2`), updated only after an approved change order (`§4.1`).
 - **Clause-cited declines:** Every declined authorization maps its Airwallex `failure_reason` back to the exact contract clause that set the rule.
 - **Agent + UI parity:** Built on `@agent-native/core` — the Contract Jobs workspace (`/home`) and the Clause agent (`/chat` and the right-hand `AgentInspector`) share the exact same typed actions, SQL job store (`cl_jobs`), and `<current-screen>` context.

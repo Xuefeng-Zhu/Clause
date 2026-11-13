@@ -34,3 +34,13 @@ export function mccsFor(categories: SpendCategory[]): string[] {
 export function categoryForMcc(mcc: string, categories: SpendCategory[]): SpendCategory | undefined {
   return categories.find((c) => MCC_BY_CATEGORY[c].mccs.includes(mcc));
 }
+
+/**
+ * MCCs that fall under a contract's explicit "funds shall not be used for meals, travel, fuel" clause.
+ * Used only to cite the right clause on a decline; the card's allowlist already blocks them.
+ */
+export const PROHIBITED_MCCS: Record<string, string> = {
+  "5812": "meals", "5813": "meals", "5814": "meals",
+  "5541": "fuel", "5542": "fuel",
+  "4511": "travel", "3000": "travel", "4111": "travel", "4121": "travel", "7011": "travel",
+};

@@ -78,7 +78,7 @@ export class ContractCardService {
       merchant_category_code: c.mcc,
       ...(c.at !== undefined ? { at: c.at } : {}),
     });
-    const explanation = explainDecline(txn, job.rules);
+    const explanation = explainDecline(txn, job.rules, job.terms.prohibited_spend);
     job.transactions.push(explanation ? { ...txn, explanation } : { ...txn });
     if (explanation) log(job, "charge_declined", explanation.headline, explanation);
     else log(job, "charge_approved", `Approved ${txn.currency} ${txn.amount} at ${txn.merchant_name}`);

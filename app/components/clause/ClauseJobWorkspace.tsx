@@ -408,16 +408,37 @@ export function ClauseJobWorkspace() {
     );
   }
 
+  /** No file attached: use the bundled sample site photo, never a placeholder byte. */
+  async function loadSampleProof(kind: typeof proofKind): Promise<UploadableProofFile> {
+    if (kind !== "photos") {
+      throw new Error("Attach the inspection report (PDF) to submit this proof.");
+    }
+    const res = await fetch("/samples/cabinets-installed.jpg");
+    if (!res.ok) throw new Error("Could not load the sample site photo.");
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
+    return {
+      filename: "cabinets-installed.jpg",
+      mediaType: "image/jpeg",
+      base64: btoa(bin),
+      declaredKind: kind,
+    };
+  }
+
   async function collectInputFiles(): Promise<UploadableProofFile[]> {
     const rawList = proofInputRef.current?.files;
     if (!rawList || rawList.length === 0) return [];
     const converted: UploadableProofFile[] = [];
     for (const file of Array.from(rawList)) {
       const base64 = await readFileAsBase64(file);
+      if (!base64) throw new Error(`${file.name} is empty or unreadable.`);
       converted.push({
         filename: file.name,
         mediaType: inferMediaType(file),
-        base64: base64 || "AA==",
+        base64,
         declaredKind: proofKind,
       });
     }
@@ -443,22 +464,7 @@ export function ClauseJobWorkspace() {
         const fromInput = await collectInputFiles();
         const combined = [...stagedProofFiles, ...fromInput];
         const filesToSend: UploadableProofFile[] =
-          combined.length > 0
-            ? combined
-            : [
-                {
-                  filename:
-                    proofKind === "inspection_report"
-                      ? "kirkland-final-inspection.pdf"
-                      : `${proofKind}-evidence.jpg`,
-                  mediaType:
-                    proofKind === "inspection_report"
-                      ? "application/pdf"
-                      : "image/jpeg",
-                  base64: "AA==",
-                  declaredKind: proofKind,
-                },
-              ];
+          combined.length > 0 ? combined : [await loadSampleProof(proofKind)];
         return submitProofMut.mutateAsync({
           jobId: activeJobId,
           files: filesToSend,

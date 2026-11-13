@@ -46,13 +46,12 @@ export function CardMini({
           </TooltipContent>
         </Tooltip>
 
-        {/* Payment network emblem matching concept-b */}
+        {/* Airwallex issues these commercial cards on the Visa network (verified on the sandbox account). */}
         <span
-          aria-hidden="true"
-          className="inline-flex items-center select-none"
+          aria-label="Visa"
+          className="select-none font-sans text-[15px] font-extrabold italic leading-none tracking-tight text-[#1A1F71]"
         >
-          <span className="size-4 rounded-full bg-[#EB001B]/90" />
-          <span className="-ms-1.5 size-4 rounded-full bg-[#F79E1B]/90 mix-blend-multiply" />
+          VISA
         </span>
       </div>
 

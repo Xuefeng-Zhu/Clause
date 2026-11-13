@@ -38,7 +38,9 @@ export function TransactionFeedItem({
 }: TransactionFeedItemProps) {
   const isDeclined = Boolean(txn.failure_reason || txn.explanation);
   const humanReason = isDeclined
-    ? humanizeDeclineReason(txn.failure_reason ?? txn.explanation?.failure_reason)
+    ? txn.explanation?.prohibited
+      ? `Prohibited spend${mccLabel ? ` (${mccLabel.toLowerCase()})` : ""}`
+      : humanizeDeclineReason(txn.failure_reason ?? txn.explanation?.failure_reason)
     : "Building-supply merchant";
 
   const theme = getClauseTheme(clauseId);

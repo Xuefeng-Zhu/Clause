@@ -36,6 +36,16 @@ export async function evaluateEvidence(milestone: Milestone, files: EvidenceFile
     };
   }
   if (!config.anthropic.apiKey) return offlineVerdict(milestone, files);
+  // Live vision only: a placeholder/empty file would 400 at the model API, so stop in code.
+  const unreadable = files.find((f) => Buffer.from(f.base64 ?? "", "base64").length < 64);
+  if (unreadable) {
+    return {
+      verdict: "insufficient",
+      reasoning: `${unreadable.filename} is empty or unreadable, so it can't show ${milestone.clause.clause_id} was met.`,
+      observed: [],
+      missing: [milestone.release_condition],
+    };
+  }
 
   const client = new Anthropic({ apiKey: config.anthropic.apiKey });
   const blocks: Anthropic.ContentBlockParam[] = files.flatMap((f): Anthropic.ContentBlockParam[] => {

@@ -54,6 +54,7 @@ export interface DeclineExplanation {
   headline: string;
   clause_id?: string;
   clause_quote?: string;
+  prohibited?: boolean;
 }
 
 export interface ClauseTransaction {

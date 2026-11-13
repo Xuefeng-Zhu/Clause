@@ -72,9 +72,17 @@ describe("end-to-end on the mock gateway", () => {
     return svc.approveTerms(job.id);
   }
 
-  it("declines a restaurant with MERCHANT_CATEGORY_NOT_ALLOWED citing §2.1", async () => {
+  it("declines a restaurant with MERCHANT_CATEGORY_NOT_ALLOWED citing the meals ban §2.2", async () => {
     const job = await issued();
     const { explanation } = await svc.simulateCharge(job.id, { amount: 86.4, merchant_name: "Taphouse", mcc: "5812" });
+    expect(explanation?.failure_reason).toBe("MERCHANT_CATEGORY_NOT_ALLOWED");
+    expect(explanation?.clause_id).toBe("§2.2");
+    expect(explanation?.prohibited).toBe(true);
+  });
+
+  it("declines a non-prohibited, non-supply merchant citing the allowlist §2.1", async () => {
+    const job = await issued();
+    const { explanation } = await svc.simulateCharge(job.id, { amount: 40, merchant_name: "Bookstore", mcc: "5942" });
     expect(explanation?.failure_reason).toBe("MERCHANT_CATEGORY_NOT_ALLOWED");
     expect(explanation?.clause_id).toBe("§2.1");
   });
@@ -147,7 +155,7 @@ describe("end-to-end on the mock gateway", () => {
     // 4. Out-of-policy merchant: Kirkland Taphouse $86.40 -> FAILED citing §2.1
     const lunch = await svc.simulateCharge(job.id, { amount: 86.4, merchant_name: "Kirkland Taphouse", mcc: "5812" });
     expect(lunch.explanation?.failure_reason).toBe("MERCHANT_CATEGORY_NOT_ALLOWED");
-    expect(lunch.explanation?.clause_id).toBe("§2.1");
+    expect(lunch.explanation?.clause_id).toBe("§2.2");
 
     // 5. Ahead-of-schedule spend: Home Depot $2,500 -> FAILED citing §1.1 ($1,840.50 + $2,500 > $4,000)
     const earlyHomeDepot = await svc.simulateCharge(job.id, { amount: 2500, merchant_name: "Home Depot", mcc: "5200" });
