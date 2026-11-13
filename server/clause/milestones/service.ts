@@ -368,6 +368,8 @@ export class ContractCardService {
     const job = await this.activeJob(jobId);
     await this.gateway.updateCard(job.card_id!, { card_status: "CLOSED" });
     job.status = "closed";
+    delete job.pending;
+    delete job.activeException;
     log(job, "card_closed", "Job closed; card closed");
     return await this.store.save(job);
   }

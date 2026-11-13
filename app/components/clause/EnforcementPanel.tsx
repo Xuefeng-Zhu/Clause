@@ -269,8 +269,11 @@ export function EnforcementPanel({
     );
   }
 
+  const pending = job.pending ?? summary.pending ?? null;
   const pendingException =
-    job.pending?.kind === "policy_exception" ? job.pending.exception : undefined;
+    summary.status === "active" && pending?.kind === "policy_exception"
+      ? pending.exception
+      : undefined;
 
   return (
     <aside aria-label="Live enforcement" className="space-y-5">
@@ -290,6 +293,7 @@ export function EnforcementPanel({
       {isPolicy && policyTerms && pendingException ? (
         <div
           role="region"
+          data-pending-exception="true"
           aria-label="Pending manager exception approval"
           className="space-y-3 rounded-xl border border-[#0F7B55]/35 bg-white p-4 shadow-2xs"
         >
@@ -299,9 +303,17 @@ export function EnforcementPanel({
               {formatCurrency(pendingException.one_time_cap, summary.currency)}{" "}
               at restaurants, {pendingException.clause.clause_id}
             </div>
-            <span className="shrink-0 rounded border border-[#B2DEC4] bg-[#CFEBD9] px-1.5 py-0.5 text-[11px] font-semibold text-[#0F5C3F]">
+            <button
+              type="button"
+              onMouseEnter={() =>
+                onHoverClause(pendingException.clause.clause_id)
+              }
+              onMouseLeave={() => onHoverClause(null)}
+              onClick={() => onSelectClause(pendingException.clause.clause_id)}
+              className="shrink-0 rounded border border-[#B2DEC4] bg-[#CFEBD9] px-1.5 py-0.5 text-[11px] font-semibold text-[#0F5C3F] transition-colors hover:bg-[#BFE3CD]"
+            >
               {pendingException.clause.clause_id}
-            </span>
+            </button>
           </div>
 
           <p className="text-xs leading-relaxed text-stone-600">
@@ -320,6 +332,17 @@ export function EnforcementPanel({
                 Attendees ({pendingException.attendees}):
               </span>{" "}
               {pendingException.attendee_names.join(", ")}
+            </div>
+            <div className="mt-0.5 tabular-nums text-stone-500">
+              Validated cap:{" "}
+              {formatCurrency(
+                policyTerms.exception_clause?.per_attendee_cap ?? 125,
+                summary.currency,
+              )}{" "}
+              × {pendingException.attendees} ={" "}
+              <span className="font-semibold text-stone-800">
+                {formatCurrency(pendingException.max_allowed, summary.currency)}
+              </span>
             </div>
           </div>
 
