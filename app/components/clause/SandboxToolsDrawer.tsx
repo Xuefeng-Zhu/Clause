@@ -8,6 +8,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Sheet,
   SheetContent,
@@ -94,6 +95,8 @@ interface SandboxToolsDrawerProps {
     amount: number;
   }) => void;
   onResetWorkspace: () => void;
+  phoneVisible: boolean;
+  onPhoneVisibleChange: (visible: boolean) => void;
 }
 
 export function SandboxToolsDrawer({
@@ -106,6 +109,8 @@ export function SandboxToolsDrawer({
   onRunPresetCharge,
   onRunCustomCharge,
   onResetWorkspace,
+  phoneVisible,
+  onPhoneVisibleChange,
 }: SandboxToolsDrawerProps) {
   const [customOpen, setCustomOpen] = useState(false);
   const [merchantName, setMerchantName] = useState("Builders Supply Co.");
@@ -135,6 +140,23 @@ export function SandboxToolsDrawer({
               authorizations.
             </div>
           ) : null}
+
+          <label
+            htmlFor="contractorPhoneToggle"
+            className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-[#E6E0D4] bg-white/80 px-3.5 py-3"
+          >
+            <div>
+              <div className="text-xs font-semibold text-stone-900">Contractor phone view</div>
+              <div className="mt-0.5 text-[11px] text-stone-500">
+                Show what the contractor sees, live, beside the owner view.
+              </div>
+            </div>
+            <Switch
+              id="contractorPhoneToggle"
+              checked={phoneVisible}
+              onCheckedChange={onPhoneVisibleChange}
+            />
+          </label>
 
           <div className="space-y-2">
             <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">

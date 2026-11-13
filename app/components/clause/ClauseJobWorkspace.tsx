@@ -49,6 +49,7 @@ import { EnforcementPanel } from "./EnforcementPanel";
 import { MilestoneBar } from "./MilestoneBar";
 import { EmptyJobState, NewJobDialog } from "./NewJobDialog";
 import { SandboxToolsDrawer } from "./SandboxToolsDrawer";
+import { ContractorPhone } from "./ContractorPhone";
 import {
   formatCurrency,
   formatJobTitle,
@@ -207,6 +208,7 @@ export function ClauseJobWorkspace() {
 
   const [newJobOpen, setNewJobOpen] = useState(false);
   const [sandboxOpen, setSandboxOpen] = useState(false);
+  const [phoneVisible, setPhoneVisible] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [proofSheetOpen, setProofSheetOpen] = useState(false);
   const [coSheetOpen, setCoSheetOpen] = useState(false);
@@ -1021,7 +1023,18 @@ export function ClauseJobWorkspace() {
         onRunPresetCharge={(preset) => void handleRunPresetCharge(preset)}
         onRunCustomCharge={(input) => void handleRunCustomCharge(input)}
         onResetWorkspace={() => void handleResetWorkspace()}
+        phoneVisible={phoneVisible}
+        onPhoneVisibleChange={setPhoneVisible}
       />
+
+      {phoneVisible ? (
+        <ContractorPhone
+          job={job}
+          summary={summary ?? null}
+          isFrozen={isCardFrozen}
+          onClose={() => setPhoneVisible(false)}
+        />
+      ) : null}
 
       <ActivitySheet
         open={activityOpen}
