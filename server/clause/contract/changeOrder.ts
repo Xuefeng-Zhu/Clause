@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { config } from "../config.js";
+import { callTool, llmProvider } from "../llm.js";
 import type { ContractTerms } from "./schema.js";
 
 /** A proposed change the agent drafts from an email. It only takes effect after owner approval. */
@@ -16,26 +17,16 @@ export const ChangeOrderProposal = z.object({
 export type ChangeOrderProposal = z.infer<typeof ChangeOrderProposal>;
 
 export async function draftChangeOrder(terms: ContractTerms, emailText: string): Promise<ChangeOrderProposal> {
-  if (!config.anthropic.apiKey) return offlineDraft(emailText);
-  const client = new Anthropic({ apiKey: config.anthropic.apiKey });
-  const msg = await client.messages.create({
-    model: config.anthropic.model,
-    max_tokens: 1500,
-    system:
-      "You compare a contractor email against the current contract terms and draft a change-order proposal. Quote the email verbatim in source_quote. Never invent amounts or dates that are not in the email. requires_signed_change_order is true whenever price, scope or schedule changes.",
-    tools: [
-      {
-        name: "propose_change_order",
-        description: "Draft the change order.",
-        input_schema: z.toJSONSchema(ChangeOrderProposal, { target: "draft-7" }) as Anthropic.Tool.InputSchema,
-      },
-    ],
-    tool_choice: { type: "tool", name: "propose_change_order" },
-    messages: [{ role: "user", content: `<terms>${JSON.stringify(terms)}</terms>\n<email>${emailText}</email>` }],
+  if (!llmProvider()) return offlineDraft(emailText);
+  const callInput = await callTool({
+    system: "You compare a contractor email against the current contract terms and draft a change-order proposal. Quote the email verbatim in source_quote. Never invent amounts or dates that are not in the email. requires_signed_change_order is true whenever price, scope or schedule changes.",
+    content: `<terms>${JSON.stringify(terms)}</terms>\n<email>${emailText}</email>`,
+    toolName: "propose_change_order",
+    description: "Draft the change order.",
+    schema: z.toJSONSchema(ChangeOrderProposal, { target: "draft-7" }) as Record<string, unknown>,
+    maxTokens: 1500,
   });
-  const call = msg.content.find((b) => b.type === "tool_use");
-  if (!call || call.type !== "tool_use") throw new Error("No change order proposed.");
-  return ChangeOrderProposal.parse(call.input);
+  return ChangeOrderProposal.parse(callInput);
 }
 
 /** Apply an APPROVED change order to the terms. Pure function; caller re-derives the card plan. */

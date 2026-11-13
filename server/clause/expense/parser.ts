@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { config } from "../config.js";
+import { callTool, llmProvider } from "../llm.js";
 import type { ContractSource } from "../contract/parser.js";
 import { SAMPLE_POLICY_TERMS } from "../fixtures.js";
 import { addDaysIso, PolicyTerms, validatePolicyTerms } from "./schema.js";
@@ -8,7 +9,7 @@ import { addDaysIso, PolicyTerms, validatePolicyTerms } from "./schema.js";
 export interface PolicyParseResult {
   policyTerms: PolicyTerms;
   problems: string[];
-  parsedBy: "claude" | "offline-fixture";
+  parsedBy: "gemini" | "claude" | "offline-fixture";
 }
 
 const POLICY_SYSTEM = `You extract corporate travel & expense policy rules and an approved trip request into structured PolicyTerms.
@@ -33,18 +34,17 @@ export function looksLikePolicyDocument(src: ContractSource): boolean {
 }
 
 export async function parsePolicy(src: ContractSource): Promise<PolicyParseResult> {
-  const policyTerms = config.anthropic.apiKey
+  const policyTerms = llmProvider()
     ? await parsePolicyWithClaude(src)
     : await parsePolicyOffline(src);
   return {
     policyTerms,
     problems: validatePolicyTerms(policyTerms),
-    parsedBy: config.anthropic.apiKey ? "claude" : "offline-fixture",
+    parsedBy: (llmProvider() ?? "offline-fixture"),
   };
 }
 
 async function parsePolicyWithClaude(src: ContractSource): Promise<PolicyTerms> {
-  const client = new Anthropic({ apiKey: config.anthropic.apiKey });
   const content: Anthropic.MessageParam["content"] =
     src.kind === "pdf"
       ? [
@@ -58,23 +58,15 @@ async function parsePolicyWithClaude(src: ContractSource): Promise<PolicyTerms> 
           },
         ];
 
-  const msg = await client.messages.create({
-    model: config.anthropic.model,
-    max_tokens: 4096,
+  const callInput = await callTool({
     system: POLICY_SYSTEM,
-    tools: [
-      {
-        name: "record_policy_terms",
-        description: "Record the extracted travel & expense policy and trip terms.",
-        input_schema: POLICY_TOOL_SCHEMA as Anthropic.Tool.InputSchema,
-      },
-    ],
-    tool_choice: { type: "tool", name: "record_policy_terms" },
-    messages: [{ role: "user", content }],
+    content: content,
+    toolName: "record_policy_terms",
+    description: "Record the extracted travel & expense policy and trip terms.",
+    schema: POLICY_TOOL_SCHEMA as Record<string, unknown>,
+    maxTokens: 4096,
   });
-  const call = msg.content.find((b) => b.type === "tool_use");
-  if (!call || call.type !== "tool_use") throw new Error("Claude did not return policy terms.");
-  const terms = PolicyTerms.parse(call.input);
+  const terms = PolicyTerms.parse(callInput);
   // Enforce deterministic 48h expiry if clause quotes "48 hours after"
   if (/48\s+hours\s+after/i.test(terms.card_expires.clause.quote) && /^\d{4}-\d{2}-\d{2}$/.test(terms.trip_end)) {
     terms.card_expires.date = addDaysIso(terms.trip_end, 2);

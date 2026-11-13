@@ -1,5 +1,6 @@
 import { createGateway, type IssuingGateway } from "./airwallex/index.js";
 import { config, resolveMetalMode, syncScopedCredentials } from "./config.js";
+import { llmModelLabel } from "./llm.js";
 import {
   SAMPLE_CHANGE_ORDER_EMAIL,
   SAMPLE_EXCEPTION_NOTE,
@@ -44,7 +45,7 @@ export function runtimeInfo() {
     airwallexBaseUrl: config.awx.mode === "sandbox" ? config.awx.baseUrl : "in-memory mock",
     metalMode,
     metalNetwork: metalMode === "testnet" ? "Metal Testnet (*USDZ)" : "in-memory mock",
-    model: config.anthropic.apiKey ? config.anthropic.model : "offline fixtures (no ANTHROPIC_API_KEY)",
+    model: llmModelLabel(),
   };
 }
 

@@ -37,6 +37,10 @@ export const config = {
       return process.env.METAL_RPC_URL || undefined; // guard:allow-no-env-credentials — deployment Metal testnet RPC endpoint
     },
   },
+  gemini: {
+    apiKey: (process.env.GEMINI_API_KEY || undefined) as string | undefined, // guard:allow-no-env-credentials — deployment model key fallback
+    model: process.env.GEMINI_MODEL || "gemini-3.8-flash", // guard:allow-no-env-credentials — model name
+  },
   anthropic: {
     apiKey: undefined as string | undefined,
     model: "claude-sonnet-4-5",
@@ -68,12 +72,13 @@ export async function syncScopedCredentials(): Promise<void> {
   if (!getRequestUserEmail()) return;
 
   try {
-    const [awxClientId, awxApiKey, awxCardholderId, anthropicKey] =
+    const [awxClientId, awxApiKey, awxCardholderId, anthropicKey, geminiKey] =
       await Promise.all([
         readScopedSecret("AWX_CLIENT_ID"),
         readScopedSecret("AWX_API_KEY"),
         readScopedSecret("AWX_CARDHOLDER_ID"),
         readScopedSecret("ANTHROPIC_API_KEY"),
+        readScopedSecret("GEMINI_API_KEY"),
       ]);
 
     if (awxClientId && awxApiKey) {
@@ -91,6 +96,9 @@ export async function syncScopedCredentials(): Promise<void> {
       config.awx.clientId = "mock_client_id";
       config.awx.apiKey = "mock_api_key";
       config.awx.cardholderId = awxCardholderId;
+    }
+    if (geminiKey !== undefined) {
+      config.gemini.apiKey = geminiKey;
     }
     if (anthropicKey !== undefined) {
       config.anthropic.apiKey = anthropicKey;

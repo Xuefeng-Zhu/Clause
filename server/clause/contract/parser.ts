@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { config } from "../config.js";
+import { callTool, llmProvider } from "../llm.js";
 import { ContractTerms, validateTerms } from "./schema.js";
 import { SAMPLE_TERMS } from "../fixtures.js";
 
@@ -11,12 +12,13 @@ export type ContractSource =
 export interface ParseResult {
   terms: ContractTerms;
   problems: string[]; // deterministic validation issues; non-empty blocks card issuance
-  parsedBy: "claude" | "offline-fixture";
+  parsedBy: "gemini" | "claude" | "offline-fixture";
 }
 
 const SYSTEM = `You extract payment terms from a contractor quote or email thread for a small business.
 Rules:
 - Copy each clause_id exactly as written (e.g. "§2.1") and quote the clause text verbatim. Never paraphrase a quote.
+- Milestone ids are "M1", "M2", "M3"... in document order.
 - Amounts in major units as numbers (4,000.00 -> 4000).
 - Dates as YYYY-MM-DD. "deadline.date" is the last day funds may be drawn.
 - allowed_spend.categories: choose only from the enum. If the contract allows something not in the enum, add an open_question instead of guessing.
@@ -27,12 +29,11 @@ Return the result only through the record_contract_terms tool.`;
 const TERMS_TOOL_SCHEMA = z.toJSONSchema(ContractTerms, { target: "draft-7" }) as Record<string, unknown>;
 
 export async function parseContract(src: ContractSource): Promise<ParseResult> {
-  const terms = config.anthropic.apiKey ? await parseWithClaude(src) : await parseOffline(src);
-  return { terms, problems: validateTerms(terms), parsedBy: config.anthropic.apiKey ? "claude" : "offline-fixture" };
+  const terms = llmProvider() ? await parseWithClaude(src) : await parseOffline(src);
+  return { terms, problems: validateTerms(terms), parsedBy: (llmProvider() ?? "offline-fixture") };
 }
 
 async function parseWithClaude(src: ContractSource): Promise<ContractTerms> {
-  const client = new Anthropic({ apiKey: config.anthropic.apiKey });
   const content: Anthropic.MessageParam["content"] =
     src.kind === "pdf"
       ? [
@@ -41,23 +42,15 @@ async function parseWithClaude(src: ContractSource): Promise<ContractTerms> {
         ]
       : [{ type: "text", text: `Extract the contract terms from this quote / thread:\n\n<document>\n${src.text}\n</document>` }];
 
-  const msg = await client.messages.create({
-    model: config.anthropic.model,
-    max_tokens: 4096,
+  const callInput = await callTool({
     system: SYSTEM,
-    tools: [
-      {
-        name: "record_contract_terms",
-        description: "Record the extracted contract terms.",
-        input_schema: TERMS_TOOL_SCHEMA as Anthropic.Tool.InputSchema,
-      },
-    ],
-    tool_choice: { type: "tool", name: "record_contract_terms" },
-    messages: [{ role: "user", content }],
+    content: content,
+    toolName: "record_contract_terms",
+    description: "Record the extracted contract terms.",
+    schema: TERMS_TOOL_SCHEMA as Record<string, unknown>,
+    maxTokens: 4096,
   });
-  const call = msg.content.find((b) => b.type === "tool_use");
-  if (!call || call.type !== "tool_use") throw new Error("Claude did not return contract terms.");
-  const terms = ContractTerms.parse(call.input);
+  const terms = ContractTerms.parse(callInput);
   assertQuotesAreVerbatim(terms, src);
   return terms;
 }
@@ -83,7 +76,7 @@ export function assertQuotesAreVerbatim(terms: ContractTerms, src: ContractSourc
 async function parseOffline(src: ContractSource): Promise<ContractTerms> {
   const text = src.kind === "text" ? src.text : "";
   if (!text.includes("Q-2026-0412")) {
-    throw new Error("Offline mode only understands samples/quote-maple-street-cafe.txt. Set ANTHROPIC_API_KEY to parse other quotes.");
+    throw new Error("Offline mode only understands samples/quote-maple-street-cafe.txt. Set GEMINI_API_KEY to parse other quotes.");
   }
   return ContractTerms.parse(structuredClone(SAMPLE_TERMS));
 }

@@ -28,7 +28,8 @@ To switch to live providers, add user-scoped credentials in **Settings › Secre
 | --- | --- |
 | `AWX_CLIENT_ID` + `AWX_API_KEY` | Switches Airwallex Issuing from `mock` to live `api.sandbox.airwallex.com` calls |
 | `AWX_CARDHOLDER_ID` | Optional pre-created `DELEGATE` cardholder ID in the Airwallex sandbox |
-| `ANTHROPIC_API_KEY` | Enables live Claude extraction for arbitrary quotes/PDFs, photo/PDF proof review, and change-order drafting |
+| `GEMINI_API_KEY` | Preferred: enables live Gemini (gemini-3.8-flash) extraction for arbitrary quotes/policies/PDFs, photo/PDF proof review, change orders and exception notes |
+| `ANTHROPIC_API_KEY` | Fallback if no Gemini key: Enables live Claude extraction for arbitrary quotes/PDFs, photo/PDF proof review, and change-order drafting |
 
 ## Architecture
 

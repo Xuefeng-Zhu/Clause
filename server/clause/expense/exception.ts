@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { config } from "../config.js";
+import { callTool, llmProvider } from "../llm.js";
 import { ClauseRef } from "../contract/schema.js";
 import type { PolicyTerms } from "./schema.js";
 
@@ -88,7 +89,7 @@ export async function draftPolicyException(
     throw new Error("Provide a note naming the client and attendees.");
   }
 
-  const raw = config.anthropic.apiKey
+  const raw = llmProvider()
     ? await extractWithClaude(terms, trimmed)
     : extractOffline(trimmed);
 
@@ -118,30 +119,15 @@ async function extractWithClaude(
   terms: PolicyTerms,
   note: string,
 ): Promise<z.infer<typeof RawModelException>> {
-  const client = new Anthropic({ apiKey: config.anthropic.apiKey });
-  const msg = await client.messages.create({
-    model: config.anthropic.model,
-    max_tokens: 1024,
-    system:
-      "You evaluate an employee's expense-exception note against the company policy's client-entertainment clause. Extract the named client, the exact list of named attendees (including employees present), the attendee count, any explicit cap requested in the note, and a short 1-sentence rationale citing §3.4. Never invent attendee names not in the note.",
-    tools: [
-      {
-        name: "propose_policy_exception",
-        description: "Extract client entertainment exception details.",
-        input_schema: z.toJSONSchema(RawModelException, { target: "draft-7" }) as Anthropic.Tool.InputSchema,
-      },
-    ],
-    tool_choice: { type: "tool", name: "propose_policy_exception" },
-    messages: [
-      {
-        role: "user",
-        content: `<exception_clause>${JSON.stringify(terms.exception_clause)}</exception_clause>\n<employee_note>${note}</employee_note>`,
-      },
-    ],
+  const callInput = await callTool({
+    system: "You evaluate an employee's expense-exception note against the company policy's client-entertainment clause. Extract the named client, the exact list of named attendees (including employees present), the attendee count, any explicit cap requested in the note, and a short 1-sentence rationale citing §3.4. Never invent attendee names not in the note.",
+    content: `<exception_clause>${JSON.stringify(terms.exception_clause)}</exception_clause>\n<employee_note>${note}</employee_note>`,
+    toolName: "propose_policy_exception",
+    description: "Extract client entertainment exception details.",
+    schema: z.toJSONSchema(RawModelException, { target: "draft-7" }) as Record<string, unknown>,
+    maxTokens: 1024,
   });
-  const call = msg.content.find((b) => b.type === "tool_use");
-  if (!call || call.type !== "tool_use") throw new Error("Claude did not return an exception proposal.");
-  return RawModelException.parse(call.input);
+  return RawModelException.parse(callInput);
 }
 
 function extractOffline(note: string): z.infer<typeof RawModelException> {

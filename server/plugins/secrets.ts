@@ -33,6 +33,17 @@ registerRequiredSecret({
 });
 
 registerRequiredSecret({
+  key: "GEMINI_API_KEY",
+  label: "Google Gemini API Key",
+  description:
+    "Gemini key for live quote/policy extraction, photo/PDF evidence review, change-order drafting and exception notes. Preferred over Anthropic. Leave unset to use bundled offline fixtures.",
+  docsUrl: "https://aistudio.google.com/apikey",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
   key: "ANTHROPIC_API_KEY",
   label: "Anthropic API Key",
   description:
