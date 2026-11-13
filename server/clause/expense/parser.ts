@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { config } from "../config.js";
-import { callTool, llmProvider } from "../llm.js";
+import { callTool, llmProvider, withOfflineFallback } from "../llm.js";
 import type { ContractSource } from "../contract/parser.js";
 import { SAMPLE_POLICY_TERMS } from "../fixtures.js";
 import { addDaysIso, PolicyTerms, validatePolicyTerms } from "./schema.js";
@@ -34,13 +34,13 @@ export function looksLikePolicyDocument(src: ContractSource): boolean {
 }
 
 export async function parsePolicy(src: ContractSource): Promise<PolicyParseResult> {
-  const policyTerms = llmProvider()
-    ? await parsePolicyWithClaude(src)
-    : await parsePolicyOffline(src);
+  const { value: policyTerms, usedFallback } = llmProvider()
+    ? await withOfflineFallback(() => parsePolicyWithClaude(src), () => parsePolicyOffline(src))
+    : { value: await parsePolicyOffline(src), usedFallback: true };
   return {
     policyTerms,
     problems: validatePolicyTerms(policyTerms),
-    parsedBy: (llmProvider() ?? "offline-fixture"),
+    parsedBy: usedFallback ? "offline-fixture" : llmProvider()!,
   };
 }
 

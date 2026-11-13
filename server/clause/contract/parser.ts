@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { config } from "../config.js";
-import { callTool, llmProvider } from "../llm.js";
+import { callTool, llmProvider, withOfflineFallback } from "../llm.js";
 import { ContractTerms, validateTerms } from "./schema.js";
 import { SAMPLE_TERMS } from "../fixtures.js";
 
@@ -29,8 +29,12 @@ Return the result only through the record_contract_terms tool.`;
 const TERMS_TOOL_SCHEMA = z.toJSONSchema(ContractTerms, { target: "draft-7" }) as Record<string, unknown>;
 
 export async function parseContract(src: ContractSource): Promise<ParseResult> {
-  const terms = llmProvider() ? await parseWithClaude(src) : await parseOffline(src);
-  return { terms, problems: validateTerms(terms), parsedBy: (llmProvider() ?? "offline-fixture") };
+  if (!llmProvider()) {
+    const terms = await parseOffline(src);
+    return { terms, problems: validateTerms(terms), parsedBy: "offline-fixture" };
+  }
+  const { value: terms, usedFallback } = await withOfflineFallback(() => parseWithClaude(src), () => parseOffline(src));
+  return { terms, problems: validateTerms(terms), parsedBy: usedFallback ? "offline-fixture" : llmProvider()! };
 }
 
 async function parseWithClaude(src: ContractSource): Promise<ContractTerms> {

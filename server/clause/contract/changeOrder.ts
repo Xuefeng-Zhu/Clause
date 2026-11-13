@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { config } from "../config.js";
-import { callTool, llmProvider } from "../llm.js";
+import { callTool, llmProvider, withOfflineFallback } from "../llm.js";
 import type { ContractTerms } from "./schema.js";
 
 /** A proposed change the agent drafts from an email. It only takes effect after owner approval. */
@@ -18,14 +18,14 @@ export type ChangeOrderProposal = z.infer<typeof ChangeOrderProposal>;
 
 export async function draftChangeOrder(terms: ContractTerms, emailText: string): Promise<ChangeOrderProposal> {
   if (!llmProvider()) return offlineDraft(emailText);
-  const callInput = await callTool({
+  const { value: callInput } = await withOfflineFallback(() => callTool({
     system: "You compare a contractor email against the current contract terms and draft a change-order proposal. Quote the email verbatim in source_quote. Never invent amounts or dates that are not in the email. requires_signed_change_order is true whenever price, scope or schedule changes.",
     content: `<terms>${JSON.stringify(terms)}</terms>\n<email>${emailText}</email>`,
     toolName: "propose_change_order",
     description: "Draft the change order.",
     schema: z.toJSONSchema(ChangeOrderProposal, { target: "draft-7" }) as Record<string, unknown>,
     maxTokens: 1500,
-  });
+  }), () => offlineDraft(emailText));
   return ChangeOrderProposal.parse(callInput);
 }
 

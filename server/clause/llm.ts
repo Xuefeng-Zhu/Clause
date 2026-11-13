@@ -31,6 +31,27 @@ export interface ToolCallRequest {
   maxTokens: number;
 }
 
+/**
+ * Run the live model path; if the model is unavailable (outage, rate limit) fall back to the
+ * offline path when it can handle this input. Limits are still enforced in code either way.
+ */
+export async function withOfflineFallback<T>(
+  live: () => Promise<T>,
+  offline: () => T | Promise<T>,
+): Promise<{ value: T; usedFallback: boolean }> {
+  try {
+    return { value: await live(), usedFallback: false };
+  } catch (err) {
+    try {
+      const value = await offline();
+      console.warn(`[clause] model call failed, using offline fallback: ${(err as Error).message}`);
+      return { value, usedFallback: true };
+    } catch {
+      throw err;
+    }
+  }
+}
+
 export async function callTool(req: ToolCallRequest): Promise<unknown> {
   const p = llmProvider();
   if (p === "gemini") return callGemini(req);
@@ -98,16 +119,24 @@ async function callGemini(req: ToolCallRequest): Promise<unknown> {
       thinkingConfig: { thinkingLevel: process.env.GEMINI_THINKING || "low" },
     },
   };
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-goog-api-key": config.gemini.apiKey! },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120_000),
-  });
-  const json = (await res.json()) as {
+  type GeminiJson = {
     error?: { message?: string };
     candidates?: { content?: { parts?: { functionCall?: { name: string; args: unknown } }[] } }[];
   };
+  // Gemini returns 429/503 ("high demand") in bursts; retry transient errors with backoff.
+  let res!: Response;
+  let json: GeminiJson = {};
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": config.gemini.apiKey! },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120_000),
+    });
+    json = (await res.json().catch(() => ({}))) as GeminiJson;
+    if (res.ok || ![429, 500, 502, 503, 504].includes(res.status)) break;
+  }
   if (!res.ok) throw new Error(`Gemini error ${res.status}: ${json.error?.message ?? "unknown"}`);
   const call = json.candidates?.[0]?.content?.parts?.find((p) => p.functionCall)?.functionCall;
   if (!call) throw new Error(`Gemini did not call ${req.toolName}.`);

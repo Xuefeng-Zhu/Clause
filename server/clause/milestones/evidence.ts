@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { config } from "../config.js";
-import { callTool, llmProvider } from "../llm.js";
+import { callTool, llmProvider, withOfflineFallback } from "../llm.js";
 import type { EvidenceKind, Milestone } from "../contract/schema.js";
 
 export interface EvidenceFile {
@@ -60,14 +60,14 @@ export async function evaluateEvidence(milestone: Milestone, files: EvidenceFile
     text: `Milestone ${milestone.id} "${milestone.name}". Release condition (${milestone.clause.clause_id}): "${milestone.clause.quote}". Does the evidence show this condition is met? Be skeptical: stock photos, a different room, unfinished work, or a report for a different address are "insufficient". If you can't tell, answer "unclear".`,
   });
 
-  const callInput = await callTool({
+  const { value: callInput } = await withOfflineFallback(() => callTool({
     system: "You review construction progress evidence for a small-business owner. You recommend; the owner decides.",
     content: blocks,
     toolName: "record_verdict",
     description: "Record the evidence verdict.",
     schema: z.toJSONSchema(EvidenceVerdict, { target: "draft-7" }) as Record<string, unknown>,
     maxTokens: 1200,
-  });
+  }), () => offlineVerdict(milestone, files));
   return EvidenceVerdict.parse(callInput);
 }
 

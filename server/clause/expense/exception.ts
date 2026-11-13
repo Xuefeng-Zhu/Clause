@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { config } from "../config.js";
-import { callTool, llmProvider } from "../llm.js";
+import { callTool, llmProvider, withOfflineFallback } from "../llm.js";
 import { ClauseRef } from "../contract/schema.js";
 import type { PolicyTerms } from "./schema.js";
 
@@ -90,7 +90,7 @@ export async function draftPolicyException(
   }
 
   const raw = llmProvider()
-    ? await extractWithClaude(terms, trimmed)
+    ? (await withOfflineFallback(() => extractWithClaude(terms, trimmed), () => extractOffline(trimmed))).value
     : extractOffline(trimmed);
 
   const effectiveRequestedCap = opts.requestedCap ?? raw.requested_cap;
