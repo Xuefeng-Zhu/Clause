@@ -40,6 +40,8 @@ export const config = {
   gemini: {
     apiKey: (process.env.GEMINI_API_KEY || undefined) as string | undefined, // guard:allow-no-env-credentials — deployment model key fallback
     model: process.env.GEMINI_MODEL || "gemini-3.8-flash", // guard:allow-no-env-credentials — model name
+    // Used when the primary model is overloaded (429/5xx). Same key, different capacity pool.
+    fallbackModel: process.env.GEMINI_FALLBACK_MODEL || "gemini-3.5-flash", // guard:allow-no-env-credentials — model name
   },
   anthropic: {
     apiKey: undefined as string | undefined,

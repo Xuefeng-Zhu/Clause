@@ -100,7 +100,6 @@ function toGeminiParts(content: ToolCallRequest["content"]): GeminiPart[] {
 }
 
 async function callGemini(req: ToolCallRequest): Promise<unknown> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.gemini.model}:generateContent`;
   const body = {
     system_instruction: { parts: [{ text: req.system }] },
     contents: [{ role: "user", parts: toGeminiParts(req.content) }],
@@ -126,8 +125,11 @@ async function callGemini(req: ToolCallRequest): Promise<unknown> {
   // Gemini returns 429/503 ("high demand") in bursts; retry transient errors with backoff.
   let res!: Response;
   let json: GeminiJson = {};
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
+  // Two tries on the primary model, then two on the fallback model (same key).
+  const models = [config.gemini.model, config.gemini.model, config.gemini.fallbackModel, config.gemini.fallbackModel];
+  for (let attempt = 0; attempt < models.length; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 1000 * attempt));
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${models[attempt]}:generateContent`;
     res = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": config.gemini.apiKey! },
