@@ -13,7 +13,8 @@
     "action": "agent-native action",
     "script": "agent-native script",
     "test": "vitest --run --passWithNoTests",
-    "agent-native:doctor": "agent-native doctor"
+    "agent-native:doctor": "agent-native doctor",
+    "smoke:sandbox": "tsx scripts/smoke-sandbox.ts"
   },
   "dependencies": {
     "@agent-native/agentkit": "0.226.0",

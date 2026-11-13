@@ -18,14 +18,17 @@ import type {
  *   GET  /issuing/cards/{id}
  *   POST /issuing/cards/{id}/update       (controls, freeze = INACTIVE, close = CLOSED)
  *   POST /simulation/issuing/create       (sandbox-only authorization)
- *   POST /simulation/issuing/{txn}/capture
- *   GET  /issuing/transactions
+ *   POST /simulation/issuing/card_transaction_lifecycles/{lifecycle_id}/capture
+ *   GET  /issuing/transactions?card_id=
  *
- * TODO(verify on first sandbox run, via docs MCP):
- *  - REST cardholder create: DELEGATE needs only email on MCP; REST may want more fields.
- *    If REST rejects, create the DELEGATE cardholder once via the developer MCP and set
- *    AWX_CARDHOLDER_ID in .env (createDelegateCardholder() honors it).
- *  - simulation/issuing/create body: card_id vs card_number, merchant field names.
+ * Verified live against the sandbox on 2026-11-12:
+ *  - REST DELEGATE cardholder: { type, email } only, returns READY (HTTP 202).
+ *  - cards/create needs program: { purpose: "COMMERCIAL" } (no type on this account).
+ *  - authorization_controls round-trip as sent; partial updates keep other fields.
+ *  - simulation body: card_id, transaction_amount, transaction_currency,
+ *    merchant_category_code, merchant_info (string). Response has process_result
+ *    APPROVED|DECLINED, failure_reason, card_transaction_lifecycle_id.
+ *  - card_status INACTIVE declines with CARD_INACTIVE; CLOSED closes.
  */
 export class SandboxIssuingGateway implements IssuingGateway {
   readonly mode = "sandbox" as const;
@@ -44,6 +47,7 @@ export class SandboxIssuingGateway implements IssuingGateway {
       created_by: "Contract-as-Card agent",
       form_factor: "VIRTUAL",
       is_personalized: false,
+      program: { purpose: "COMMERCIAL" },
       nick_name: input.nick_name,
       authorization_controls: input.authorization_controls,
     });
@@ -64,12 +68,15 @@ export class SandboxIssuingGateway implements IssuingGateway {
       card_id: req.card_id,
       transaction_amount: req.amount,
       transaction_currency: req.currency,
-      merchant_info: { name: req.merchant_name, category_code: req.merchant_category_code },
+      merchant_category_code: req.merchant_category_code,
+      merchant_info: req.merchant_name,
     });
     const txn = normalizeTxn(res, req);
-    if (!txn.failure_reason) {
-      await this.awx.post(`/simulation/issuing/${txn.transaction_id}/capture`, {}).catch(() => undefined);
-      txn.transaction_type = "CLEARING";
+    if (!txn.failure_reason && res.process_result !== "DECLINED" && res.card_transaction_lifecycle_id) {
+      await this.awx
+        .post(`/simulation/issuing/card_transaction_lifecycles/${res.card_transaction_lifecycle_id}/capture`, {})
+        .then(() => { txn.transaction_type = "CLEARING"; })
+        .catch(() => undefined);
     }
     return txn;
   }
@@ -93,14 +100,14 @@ function normalizeCard(r: any): Card {
 function normalizeTxn(r: any, req?: SimulatedAuthRequest): IssuingTransaction {
   const failureReason = r.failure_reason;
   return {
-    transaction_id: r.transaction_id ?? r.id,
+    transaction_id: r.transaction_id ?? r.card_transaction_id ?? r.card_transaction_data?.card_transaction_id ?? r.id,
     card_id: r.card_id ?? req?.card_id,
-    amount: Number(r.transaction_amount ?? r.amount ?? req?.amount),
+    amount: Math.abs(Number(r.transaction_amount ?? r.amount ?? req?.amount)),
     currency: r.transaction_currency ?? r.currency ?? req?.currency,
-    merchant_name: r.merchant?.name ?? r.merchant_info?.name ?? req?.merchant_name ?? "",
+    merchant_name: (r.merchant?.name ? String(r.merchant.name).replace(/_+$/, "") : undefined) ?? r.merchant_info?.name ?? req?.merchant_name ?? "",
     merchant_category_code: r.merchant?.category_code ?? r.merchant_info?.category_code ?? req?.merchant_category_code ?? "",
     transaction_type: r.transaction_type ?? "AUTHORIZATION",
-    status: r.status,
+    status: r.status ?? (r.process_result === "DECLINED" ? "FAILED" : r.process_result === "APPROVED" ? "APPROVED" : undefined),
     ...(failureReason ? { failure_reason: failureReason } : {}),
     created_at: r.transaction_date ?? r.created_at ?? new Date().toISOString(),
   };

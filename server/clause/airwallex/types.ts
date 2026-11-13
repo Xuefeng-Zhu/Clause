@@ -1,6 +1,6 @@
 // Shapes we use from the Airwallex Issuing API (sandbox).
 // Field names follow the Airwallex API reference + airwallexdev.com/guide.
-// TODO(verify): confirm exact authorization_controls field names with the docs MCP
+// authorization_controls field names verified live against the Airwallex sandbox on 2026-11-12.
 // (https://mcp.sandbox.airwallex.com/docs) before the first sandbox run. Everything that
 // touches the wire is built in policy/cardRules.ts -> toCardControlsPayload(), so a field
 // rename is a one-line fix.
