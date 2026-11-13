@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
+import { buildExpenseReportCsv } from "../app/components/clause/expense-report.js";
+import type { ClauseJob } from "../app/components/clause/clause-types.js";
 import { MockIssuingGateway } from "../server/clause/airwallex/mock.js";
 import { POLICY_DEMO_CHARGES, summarize } from "../server/clause/app.js";
 import { config } from "../server/clause/config.js";
@@ -306,5 +308,18 @@ describe("exception cap validation and end-to-end policy card flow", () => {
     const secondDinner = await svc.simulateCharge(job.id, preset("dinner"));
     expect(secondDinner.explanation?.failure_reason).toBe("LIMIT_EXCEEDED");
     expect(secondDinner.explanation?.clause_id).toBe("§3.3");
+
+    // 12. Auto-generated expense report CSV includes approved & blocked charges and $0.00 reimbursement line
+    job = await svc.getJob(job.id);
+    const csv = buildExpenseReportCsv(job as unknown as ClauseJob, summarize(job));
+    expect(csv).toContain("APPROVED");
+    expect(csv).toContain("Hyatt Regency Austin");
+    expect(csv).toContain("Uchi Austin");
+    expect(csv).toContain("Receipt: matched by card controls");
+    expect(csv).toContain("803.60");
+    expect(csv).toContain("DECLINED (blocked at terminal)");
+    expect(csv).toContain("Rainey St. Cocktail Bar");
+    expect(csv).toContain("Best Buy #512");
+    expect(csv).toContain("Owed to employee: $0.00 — nothing to reimburse");
   });
 });

@@ -26,14 +26,16 @@ Both the UI (`useActionQuery` / `useActionMutation` in `app/components/clause/Cl
 | --- | --- | --- | --- |
 | `list-jobs` | `GET` | `{}` | List current user's contract jobs (`summarize`) + Airwallex/model runtime info |
 | `get-job` | `GET` | `{ jobId }` | Read full `Job` document (terms, verbatim clauses, derived `CardRule[]`, pending approval, transactions, events) |
-| `parse-quote` | `POST` | `{ text?, useSample? }` | Extract `ContractTerms` + deterministic validation problems; creates a `draft` job |
-| `approve-terms` | `POST` | `{ jobId }` | Owner approval: issue Airwallex virtual card at signing-milestone (`M1`) `ALL_TIME` limit |
-| `simulate-charge` | `POST` | `{ jobId, preset?, amount?, merchantName?, mcc? }` | Simulate card swipe (`lumber`, `lunch`, `home-depot`, `after-deadline`, or custom) and return clause-cited `DeclineExplanation` |
+| `parse-quote` | `POST` | `{ text?, useSample?, sampleKind? }` | Extract `ContractTerms` or `PolicyTerms` + deterministic validation problems; creates a `draft` job |
+| `approve-terms` | `POST` | `{ jobId }` | Owner/manager approval: issue Airwallex virtual card at signing-milestone (`M1`) `ALL_TIME` limit or policy trip budget + per-charge cap |
+| `simulate-charge` | `POST` | `{ jobId, preset?, amount?, merchantName?, mcc? }` | Simulate card swipe (contract or policy presets, or custom) and return clause-cited `DeclineExplanation` |
 | `submit-proof` | `POST` | `{ jobId, files }` | Check required evidence kinds in code, evaluate files, and stage a SHA-256-bound `release_milestone` pending approval |
 | `approve-release` | `POST` | `{ jobId, approvalId, milestoneId, amount, currency?, evidenceSha256? }` | Owner approval: verify exact field-for-field match against pending release and raise card `ALL_TIME` limit |
 | `draft-change-order` | `POST` | `{ jobId, emailText?, useSample? }` | Draft a `ChangeOrderProposal` from contractor email and stage a `change_order` pending approval |
 | `approve-change-order` | `POST` | `{ jobId, approvalId }` | Owner approval: apply change order to terms and re-derive Airwallex card limit and `active_to` |
-| `reject-pending` | `POST` | `{ jobId, reason? }` | Reject the current pending milestone release or change order without modifying card controls |
+| `request-exception` | `POST` | `{ jobId, note?, useSample?, requestedCap? }` | Evaluate employee §3.4 entertainment note, clamp cap to `$125 × attendees`, and stage `policy_exception` pending approval |
+| `approve-exception` | `POST` | `{ jobId, approvalId }` | Manager approval: raise `PER_TRANSACTION` limit for one charge (or 2h), automatically restoring base cap after next approved swipe |
+| `reject-pending` | `POST` | `{ jobId, reason? }` | Reject the current pending milestone release, change order, or policy exception without modifying card controls |
 | `freeze-card` | `POST` | `{ jobId, frozen }` | Toggle Airwallex card between `INACTIVE` (frozen) and `ACTIVE` |
 | `close-job` | `POST` | `{ jobId }` | Permanently close the Airwallex virtual card (`CLOSED`) and mark job `closed` |
 | `reset-demo` | `POST` | `{}` | Delete the current user's demo jobs and reset the in-memory mock gateway |
@@ -43,7 +45,7 @@ Both the UI (`useActionQuery` / `useActionMutation` in `app/components/clause/Cl
 ## Application state & UI selectors
 
 - `navigation` tracks `{ view, path, publicPath, jobId?, threadId? }` via `app/hooks/use-navigation-state.ts`; selected job is synced to `/home?job=<jobId>`.
-- Stable DOM hooks on `/home` (`app/components/clause/ClauseJobWorkspace.tsx`): `#parse`, `#approveTerms`, `[data-charge]`, `#proofFiles`, `#proofKind`, `#submitProof`, `#draftCo`, `#approveRelease`, `#approveCo`, `#resetDemo`.
+- Stable DOM hooks on `/home` (`app/components/clause/ClauseJobWorkspace.tsx`): `#parse`, `#approveTerms`, `[data-charge]`, `#proofFiles`, `#proofKind`, `#submitProof`, `#draftCo`, `#approveRelease`, `#approveCo`, `#requestException`, `#approveException`, `#expenseReport`, `#exportReport`, `#resetDemo`.
 
 ## Verification
 
