@@ -1,6 +1,11 @@
 import { createGateway, type IssuingGateway } from "./airwallex/index.js";
 import { config, syncScopedCredentials } from "./config.js";
-import { SAMPLE_CHANGE_ORDER_EMAIL, SAMPLE_QUOTE } from "./fixtures.js";
+import {
+  SAMPLE_CHANGE_ORDER_EMAIL,
+  SAMPLE_EXCEPTION_NOTE,
+  SAMPLE_POLICY,
+  SAMPLE_QUOTE,
+} from "./fixtures.js";
 import { ContractCardService } from "./milestones/service.js";
 import { DEMO_MCC_NAMES } from "./policy/mcc.js";
 import type { Job } from "./store/jobStore.js";
@@ -31,7 +36,7 @@ export function runtimeInfo() {
   };
 }
 
-/** The four charges the demo video uses. Sandbox simulations only; nothing here touches real money. */
+/** The four charges the contractor demo video uses. Sandbox simulations only; nothing here touches real money. */
 export const DEMO_CHARGES = [
   { key: "lumber", label: "Lumber $1,840.50", amount: 1840.5, merchant_name: "Dunn Lumber", mcc: "5211" },
   { key: "lunch", label: "Team lunch $86.40", amount: 86.4, merchant_name: "Kirkland Taphouse", mcc: "5812" },
@@ -39,16 +44,74 @@ export const DEMO_CHARGES = [
   { key: "after-deadline", label: "Hardware after deadline", amount: 120, merchant_name: "McLendon Hardware", mcc: "5251", at: "2026-12-24T18:00:00.000Z" },
 ] as const;
 
-export const SAMPLES = { quote: SAMPLE_QUOTE, changeOrderEmail: SAMPLE_CHANGE_ORDER_EMAIL };
+/** Preset charges for the travel & expense policy demo (TR-2611). */
+export const POLICY_DEMO_CHARGES = [
+  { key: "hotel", label: "Hyatt Regency Austin $289.00", amount: 289, merchant_name: "Hyatt Regency Austin", mcc: "7011" },
+  { key: "uber", label: "Uber Trip $34.60", amount: 34.6, merchant_name: "Uber Trip", mcc: "4121" },
+  { key: "bar", label: "Rainey St. Cocktail Bar $142.00", amount: 142, merchant_name: "Rainey St. Cocktail Bar", mcc: "5813" },
+  { key: "bestbuy", label: "Best Buy #512 $899.00", amount: 899, merchant_name: "Best Buy #512", mcc: "5732" },
+  { key: "dinner", label: "Uchi Austin $480.00", amount: 480, merchant_name: "Uchi Austin", mcc: "5812" },
+  { key: "late", label: "Uber Trip (Nov 26) $41.00", amount: 41, merchant_name: "Uber Trip", mcc: "4121", at: "2026-11-26T18:00:00.000Z" },
+] as const;
+
+export const ALL_DEMO_CHARGES = [...DEMO_CHARGES, ...POLICY_DEMO_CHARGES] as const;
+
+export const SAMPLES = {
+  quote: SAMPLE_QUOTE,
+  changeOrderEmail: SAMPLE_CHANGE_ORDER_EMAIL,
+  policy: SAMPLE_POLICY,
+  exceptionNote: SAMPLE_EXCEPTION_NOTE,
+};
 
 /** The view model the UI and the agent both read. Everything money-related is computed here, in code. */
 export function summarize(job: Job) {
+  const spent = Math.round(
+    job.transactions.filter((x) => !x.failure_reason).reduce((s, x) => s + x.amount, 0) * 100,
+  ) / 100;
+
+  if (job.kind === "policy" && job.policyTerms) {
+    const pt = job.policyTerms;
+    const budget = pt.budget.amount;
+    const released = job.status === "draft" ? 0 : budget;
+    const available = Math.round(((job.status === "draft" ? budget : released) - spent) * 100) / 100;
+    const perChargeCap = job.activeException
+      ? job.activeException.one_time_cap
+      : pt.per_charge_cap.amount;
+    return {
+      id: job.id,
+      kind: "policy" as const,
+      status: job.status,
+      contractRef: pt.policy_ref,
+      contractor: pt.traveler,
+      client: pt.company,
+      approver: pt.approver,
+      project: pt.purpose,
+      currency: pt.currency,
+      total: budget,
+      released,
+      spent,
+      available,
+      deadline: pt.card_expires.date,
+      tripStart: pt.trip_start,
+      tripEnd: pt.trip_end,
+      perChargeCap,
+      basePerChargeCap: pt.per_charge_cap.amount,
+      activeException: job.activeException ?? null,
+      cardId: job.card_id ?? null,
+      nextMilestone: null,
+      pending: job.pending ?? null,
+      problems: job.problems,
+      parsedBy: job.parsedBy,
+      mccNames: DEMO_MCC_NAMES,
+    };
+  }
+
   const t = job.terms;
   const released = t.milestones.filter((m) => job.releasedMilestoneIds.includes(m.id)).reduce((s, m) => s + m.amount, 0);
-  const spent = job.transactions.filter((x) => !x.failure_reason).reduce((s, x) => s + x.amount, 0);
   const next = t.milestones.find((m) => !job.releasedMilestoneIds.includes(m.id));
   return {
     id: job.id,
+    kind: "contract" as const,
     status: job.status,
     contractRef: t.contract_ref,
     contractor: t.contractor_name,

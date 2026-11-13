@@ -1,22 +1,26 @@
 import type { IssuingTransaction } from "../airwallex/types.js";
 import type { ChangeOrderProposal } from "../contract/changeOrder.js";
 import type { ContractTerms } from "../contract/schema.js";
+import type { ActivePolicyException, ExceptionProposal } from "../expense/exception.js";
+import type { PolicyTerms } from "../expense/schema.js";
 import type { EvidenceVerdict } from "../milestones/evidence.js";
 import type { CardRule } from "../policy/cardRules.js";
 import type { DeclineExplanation } from "../policy/declineExplainer.js";
 
+export type JobKind = "contract" | "policy";
 export type JobStatus = "draft" | "active" | "closed";
 
 /** An approval is bound to exactly what the owner saw. Changing any field invalidates it. */
 export interface PendingApproval {
   approval_id: string;
-  kind: "release_milestone" | "change_order";
+  kind: "release_milestone" | "change_order" | "policy_exception";
   milestone_id?: string;
   amount?: number;
   currency: string;
   evidence_sha256?: string;
   verdict?: EvidenceVerdict;
   change_order?: ChangeOrderProposal;
+  exception?: ExceptionProposal;
   created_at: string;
 }
 
@@ -33,6 +37,9 @@ export interface JobEvent {
     | "release_rejected"
     | "change_order_drafted"
     | "change_order_approved"
+    | "exception_requested"
+    | "exception_approved"
+    | "exception_used"
     | "card_frozen"
     | "card_closed";
   detail: string;
@@ -41,8 +48,11 @@ export interface JobEvent {
 
 export interface Job {
   id: string;
+  kind?: JobKind;
   status: JobStatus;
   terms: ContractTerms;
+  policyTerms?: PolicyTerms;
+  activeException?: ActivePolicyException;
   problems: string[];
   parsedBy: string;
   cardholder_id?: string;

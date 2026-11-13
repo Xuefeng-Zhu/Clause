@@ -62,7 +62,7 @@ export class SandboxIssuingGateway implements IssuingGateway {
   }
 
   async createCard(input: { cardholder_id: string; nick_name: string; authorization_controls: AuthorizationControls }): Promise<Card> {
-    const res = await this.awx.post<any>("/issuing/cards/create", {
+    const payload = {
       cardholder_id: input.cardholder_id,
       created_by: "Contract-as-Card agent",
       form_factor: "VIRTUAL",
@@ -70,8 +70,29 @@ export class SandboxIssuingGateway implements IssuingGateway {
       program: { purpose: "COMMERCIAL" },
       nick_name: input.nick_name,
       authorization_controls: input.authorization_controls,
-    });
-    return normalizeCard(res);
+    };
+    try {
+      return normalizeCard(await this.awx.post<any>("/issuing/cards/create", payload));
+    } catch (err) {
+      const limits = input.authorization_controls.transaction_limits?.limits;
+      if (limits && limits.length > 1) {
+        console.warn("[Airwallex sandbox] Multiple transaction_limits rejected on createCard; falling back to first limit:", err);
+        const fallbackControls: AuthorizationControls = {
+          ...input.authorization_controls,
+          transaction_limits: {
+            currency: input.authorization_controls.transaction_limits!.currency,
+            limits: [limits[0]!],
+          },
+        };
+        return normalizeCard(
+          await this.awx.post<any>("/issuing/cards/create", {
+            ...payload,
+            authorization_controls: fallbackControls,
+          }),
+        );
+      }
+      throw err;
+    }
   }
 
   async getCard(card_id: string): Promise<Card> {
@@ -79,8 +100,28 @@ export class SandboxIssuingGateway implements IssuingGateway {
   }
 
   async updateCard(card_id: string, patch: { card_status?: CardStatus; authorization_controls?: AuthorizationControls }): Promise<Card> {
-    const res = await this.awx.post<any>(`/issuing/cards/${card_id}/update`, patch as Record<string, unknown>, { withRequestId: false });
-    return normalizeCard(res);
+    try {
+      const res = await this.awx.post<any>(`/issuing/cards/${card_id}/update`, patch as Record<string, unknown>, { withRequestId: false });
+      return normalizeCard(res);
+    } catch (err) {
+      const limits = patch.authorization_controls?.transaction_limits?.limits;
+      if (limits && limits.length > 1) {
+        console.warn("[Airwallex sandbox] Multiple transaction_limits rejected on updateCard; falling back to first limit:", err);
+        const fallbackPatch = {
+          ...patch,
+          authorization_controls: {
+            ...patch.authorization_controls,
+            transaction_limits: {
+              currency: patch.authorization_controls!.transaction_limits!.currency,
+              limits: [limits[0]!],
+            },
+          },
+        };
+        const res = await this.awx.post<any>(`/issuing/cards/${card_id}/update`, fallbackPatch as Record<string, unknown>, { withRequestId: false });
+        return normalizeCard(res);
+      }
+      throw err;
+    }
   }
 
   async simulateAuthorization(req: SimulatedAuthRequest): Promise<IssuingTransaction> {

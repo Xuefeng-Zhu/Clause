@@ -1,6 +1,7 @@
 import type { AuthorizationControls, DeclineReason } from "../airwallex/types.js";
 import type { ClauseRef, ContractTerms } from "../contract/schema.js";
-import { mccsFor } from "./mcc.js";
+import type { PolicyTerms } from "../expense/schema.js";
+import { mccsFor, policyMccsFor } from "./mcc.js";
 
 /**
  * Deterministic translation: contract terms + which milestones are released -> card controls.
@@ -9,7 +10,7 @@ import { mccsFor } from "./mcc.js";
  * and the owner approved them.
  */
 export interface CardRule {
-  control: "limit" | "merchant_categories" | "time_window" | "currency";
+  control: "limit" | "per_transaction_limit" | "merchant_categories" | "time_window" | "currency";
   description: string;
   value: string;
   clause: ClauseRef;
@@ -88,6 +89,86 @@ export function buildCardPlan(
 
 export function nextMilestone(terms: ContractTerms, releasedIds: string[]) {
   return terms.milestones.find((m) => !releasedIds.includes(m.id));
+}
+
+export function buildPolicyCardPlan(
+  terms: PolicyTerms,
+  opts: {
+    perTransactionCapOverride?: number;
+    perTransactionClauseOverride?: ClauseRef;
+    utcOffset?: string;
+  } = {},
+): CardPlan {
+  const budgetAmount = round2(terms.budget.amount);
+  const perChargeAmount = round2(opts.perTransactionCapOverride ?? terms.per_charge_cap.amount);
+  if (budgetAmount <= 0) throw new Error("Trip budget must be positive.");
+  if (perChargeAmount <= 0) throw new Error("Per-transaction cap must be positive.");
+
+  const mccs = policyMccsFor(terms.allowed_spend.categories);
+  const activeTo = deadlineToActiveTo(terms.card_expires.date, opts.utcOffset);
+
+  const controls: AuthorizationControls = {
+    allowed_currencies: [terms.currency],
+    allowed_merchant_categories: mccs,
+    allowed_transaction_count: "MULTIPLE",
+    transaction_limits: {
+      currency: terms.currency,
+      limits: [
+        { amount: perChargeAmount, interval: "PER_TRANSACTION" },
+        { amount: budgetAmount, interval: "ALL_TIME" },
+      ],
+    },
+    active_to: activeTo,
+  };
+
+  const perChargeClause = opts.perTransactionClauseOverride ?? terms.per_charge_cap.clause;
+  const perChargeDesc =
+    opts.perTransactionCapOverride !== undefined
+      ? `One-time approved exception up to ${terms.currency} ${perChargeAmount.toLocaleString("en-US")}`
+      : `Single charge capped at ${terms.currency} ${perChargeAmount.toLocaleString("en-US")}`;
+
+  const rules: CardRule[] = [
+    {
+      control: "limit",
+      description: "Total trip spend capped at approved budget",
+      value: `${terms.currency} ${budgetAmount.toLocaleString("en-US")}`,
+      clause: terms.budget.clause,
+      declines: ["LIMIT_EXCEEDED"],
+    },
+    {
+      control: "per_transaction_limit",
+      description: perChargeDesc,
+      value: `${terms.currency} ${perChargeAmount.toLocaleString("en-US")}`,
+      clause: perChargeClause,
+      declines: ["LIMIT_EXCEEDED"],
+    },
+    {
+      control: "merchant_categories",
+      description: "Only approved travel & expense categories",
+      value: mccs.join(", "),
+      clause: terms.allowed_spend.clause,
+      declines: ["MERCHANT_CATEGORY_NOT_ALLOWED"],
+    },
+    {
+      control: "time_window",
+      description: "Card expires 48 hours after scheduled return",
+      value: `until ${terms.card_expires.date} 23:59 (${opts.utcOffset ?? "-08:00"})`,
+      clause: terms.card_expires.clause,
+      declines: ["OUT_OF_ALLOWED_TIME_RANGE"],
+    },
+    {
+      control: "currency",
+      description: "Trip currency only",
+      value: terms.currency,
+      clause: {
+        clause_id: "Header",
+        quote: `Approved budget: ${terms.currency} ${budgetAmount.toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
+      },
+      declines: ["CURRENCY_NOT_ALLOWED"],
+    },
+  ];
+
+  return { controls, rules, releasedAmount: budgetAmount };
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;

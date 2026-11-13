@@ -42,7 +42,9 @@ export class SqlJobStore implements JobStore {
       id: job.id,
       ownerEmail,
       status: job.status,
-      contractRef: job.terms.contract_ref,
+      contractRef:
+        (job.kind === "policy" ? job.policyTerms?.policy_ref : job.terms.contract_ref) ??
+        job.terms.contract_ref,
       cardId: job.card_id ?? "",
       doc: JSON.stringify(job),
       createdAt: job.created_at,
