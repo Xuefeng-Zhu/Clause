@@ -52,6 +52,7 @@ function eventActorAndIcon(type: JobEvent["type"]) {
     case "terms_approved":
     case "release_approved":
     case "change_order_approved":
+    case "exception_approved":
       return {
         actor: "Owner approval",
         Icon: IconShieldCheck,
@@ -83,11 +84,13 @@ function eventActorAndIcon(type: JobEvent["type"]) {
         tone: "bg-amber-500/15 text-amber-800",
       };
     case "change_order_drafted":
+    case "exception_requested":
       return {
-        actor: "Change order",
+        actor: type === "exception_requested" ? "Exception request" : "Change order",
         Icon: IconFileDiff,
         tone: "bg-[#4676A8]/15 text-[#1E4B7A]",
       };
+    case "exception_used":
     case "card_frozen":
     case "card_closed":
       return {

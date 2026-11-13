@@ -48,10 +48,44 @@ Can you confirm and we'll send the signed change order?
 Thanks,
 Dana`;
 
-export type ChargePresetKey = "lumber" | "lunch" | "home-depot" | "after-deadline";
+export const SAMPLE_POLICY_TEXT = `ACME ROBOTICS INC. — TRAVEL & EXPENSE POLICY  (v3, effective Jan 1, 2026)
+
+§1 Scope
+  1.1 Applies to all business travel paid with an Acme corporate card.
+
+§2 Trip cards
+  2.1 Each approved trip gets its own virtual card. It activates when the trip is approved and
+      expires 48 hours after the scheduled return date.
+  2.2 The card limit equals the approved trip budget.
+
+§3 Allowed spend
+  3.1 Lodging up to USD 300 per night.
+  3.2 Airfare (economy), ground transport (taxi, rideshare, transit) and business meals.
+  3.3 No single charge may exceed USD 300 without manager pre-approval.
+  3.4 Client entertainment of up to USD 125 per attendee is allowed with manager approval
+      that names the client and the attendees.
+
+§4 Not reimbursable
+  4.1 Personal purchases, electronics, and gift cards.
+  4.2 Bars, nightclubs and alcohol-only venues.
+  4.3 Entertainment not covered by §3.4.
+
+----------------------------------------------------------------
+TRIP REQUEST TR-2611 — APPROVED by Marcus Lee (Sales Director), Nov 12, 2026
+Traveler: Priya Shah, Account Executive (priya.shah@acme-robotics.example)
+Purpose: On-site pilot review with Lone Star Logistics, Austin TX
+Dates: Nov 18 – Nov 21, 2026 (return Nov 21)
+Approved budget: USD 2,000.00`;
+
+export const SAMPLE_EXCEPTION_NOTE_TEXT =
+  "Client dinner with Lone Star Logistics: Dana Ruiz (VP Ops), Kevin Tran (Ops lead), plus me and Marcus Lee. 4 attendees.";
+
+export type ContractChargePresetKey = "lumber" | "lunch" | "home-depot" | "after-deadline";
+export type PolicyChargePresetKey = "hotel" | "uber" | "bar" | "bestbuy" | "dinner" | "late";
+export type ChargePresetKey = ContractChargePresetKey | PolicyChargePresetKey;
 
 export const PRESET_CHARGES: ReadonlyArray<{
-  key: ChargePresetKey;
+  key: ContractChargePresetKey;
   label: string;
   sublabel: string;
 }> = [
@@ -60,6 +94,25 @@ export const PRESET_CHARGES: ReadonlyArray<{
   { key: "home-depot", label: "Home Depot $2,500", sublabel: "Home Depot · MCC 5200" },
   { key: "after-deadline", label: "Hardware after deadline", sublabel: "McLendon · Dec 24" },
 ];
+
+export const POLICY_PRESET_CHARGES: ReadonlyArray<{
+  key: PolicyChargePresetKey;
+  label: string;
+  sublabel: string;
+}> = [
+  { key: "hotel", label: "Hyatt Regency Austin $289.00", sublabel: "Hotel & lodging · MCC 7011" },
+  { key: "uber", label: "Uber Trip $34.60", sublabel: "Rideshare · MCC 4121" },
+  { key: "bar", label: "Rainey St. Cocktail Bar $142.00", sublabel: "Cocktail bar · MCC 5813" },
+  { key: "bestbuy", label: "Best Buy #512 $899.00", sublabel: "Electronics · MCC 5732" },
+  { key: "dinner", label: "Uchi Austin $480.00", sublabel: "Client dinner · MCC 5812" },
+  { key: "late", label: "Uber Trip (Nov 26) $41.00", sublabel: "Post-return · MCC 4121" },
+];
+
+export const ALL_PRESET_CHARGES: ReadonlyArray<{
+  key: ChargePresetKey;
+  label: string;
+  sublabel: string;
+}> = [...PRESET_CHARGES, ...POLICY_PRESET_CHARGES];
 
 export type DeclaredProofKind =
   | "photos"

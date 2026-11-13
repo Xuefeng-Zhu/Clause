@@ -2,7 +2,7 @@ import { IconCheck, IconClock, IconLock } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
 
-import { formatContractDate, formatCurrency } from "./clause-format";
+import { formatContractDate, formatCurrency, formatShortDate } from "./clause-format";
 import type { ClauseJob, JobSummary } from "./clause-types";
 
 interface MilestoneBarProps {
@@ -20,6 +20,91 @@ export function MilestoneBar({
   onHoverClause,
   onSelectClause,
 }: MilestoneBarProps) {
+  if (job.kind === "policy" || summary.kind === "policy") {
+    const pct =
+      summary.total > 0
+        ? Math.min(100, Math.round((summary.spent / summary.total) * 100))
+        : 0;
+    const activeEx = job.activeException ?? summary.activeException ?? null;
+    const perChargeCap =
+      summary.perChargeCap ?? job.policyTerms?.per_charge_cap.amount ?? 300;
+    const capClauseId = activeEx
+      ? activeEx.clause.clause_id
+      : (job.policyTerms?.per_charge_cap.clause.clause_id ?? "§3.3");
+
+    return (
+      <div
+        aria-label="Trip budget summary"
+        className="rounded-xl border border-[#E5DFD2] bg-white/80 px-4 py-3"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-stone-600">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <span>
+              Budget{" "}
+              <strong className="font-semibold tabular-nums text-stone-900">
+                {formatCurrency(summary.total, summary.currency)}
+              </strong>
+            </span>
+            <span aria-hidden="true" className="text-stone-300">
+              ·
+            </span>
+            <span>
+              Spent{" "}
+              <strong className="font-semibold tabular-nums text-stone-900">
+                {formatCurrency(summary.spent, summary.currency)}
+              </strong>
+            </span>
+            <span aria-hidden="true" className="text-stone-300">
+              ·
+            </span>
+            <span>
+              Available{" "}
+              <strong className="font-semibold tabular-nums text-[#0F7B55]">
+                {formatCurrency(summary.available, summary.currency)}
+              </strong>
+            </span>
+            <span aria-hidden="true" className="text-stone-300">
+              ·
+            </span>
+            <span>
+              Expires{" "}
+              <strong className="font-semibold tabular-nums text-stone-900">
+                {formatShortDate(summary.deadline)}
+              </strong>
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onMouseEnter={() => onHoverClause(capClauseId)}
+            onMouseLeave={() => onHoverClause(null)}
+            onClick={() => onSelectClause(capClauseId)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+              activeEx
+                ? "border-[#0F7B55]/30 bg-[#0F7B55]/10 text-[#0F5C3F]"
+                : "border-[#E5DFD2] bg-[#FAF8F3] text-stone-700 hover:border-stone-400",
+            )}
+          >
+            <span>
+              {activeEx
+                ? `Exception active: up to ${formatCurrency(activeEx.one_time_cap, summary.currency)} next charge`
+                : `Max ${formatCurrency(perChargeCap, summary.currency)} / charge`}
+            </span>
+            <span className="font-semibold">{capClauseId}</span>
+          </button>
+        </div>
+
+        <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-[#EDE8DC]">
+          <div
+            className="h-full rounded-full bg-[#0F7B55] transition-all duration-300"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   const { terms, releasedMilestoneIds } = job;
   const isDraft = summary.status === "draft";
   const pendingReleaseId =

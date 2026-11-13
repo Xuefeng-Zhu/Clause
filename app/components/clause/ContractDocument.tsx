@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { ClauseHighlight, ClauseMarginTag } from "./ClauseHighlight";
 import {
   buildContractBlocks,
+  buildPolicyBlocks,
   formatContractDate,
   formatCurrency,
   getRawQuoteForJob,
@@ -26,14 +27,20 @@ export function ContractDocument({
   onSelectClause,
 }: ContractDocumentProps) {
   const { terms } = job;
+  const isPolicy = job.kind === "policy" && Boolean(job.policyTerms);
+  const policyTerms = job.policyTerms;
+
   const rawText = useMemo(
     () => rawQuoteOverride ?? getRawQuoteForJob(job),
     [job, rawQuoteOverride],
   );
 
   const { blocks, unmatchedClauses } = useMemo(
-    () => buildContractBlocks(rawText, terms),
-    [rawText, terms],
+    () =>
+      isPolicy && policyTerms
+        ? buildPolicyBlocks(rawText, policyTerms, job.activeException)
+        : buildContractBlocks(rawText, terms),
+    [isPolicy, policyTerms, job.activeException, rawText, terms],
   );
 
   const shortContractor = stripLegalSuffix(terms.contractor_name);
@@ -41,54 +48,103 @@ export function ContractDocument({
   return (
     <article
       data-contract-paper="true"
-      aria-label={`Contract ${terms.contract_ref}`}
+      aria-label={
+        isPolicy && policyTerms
+          ? `Travel policy ${policyTerms.policy_ref}`
+          : `Contract ${terms.contract_ref}`
+      }
       className="clause-paper-sheet relative rounded-[10px] px-5 py-7 sm:px-9 sm:py-10"
     >
       {/* Document Masthead */}
-      <header className="border-b border-[#ECE6DA] pb-6 sm:ps-[3.5rem]">
-        <div className="flex flex-wrap items-baseline justify-between gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-stone-400">
-          <span>Quote &amp; Service Agreement</span>
-          <span className="tabular-nums">{terms.contract_ref}</span>
-        </div>
+      {isPolicy && policyTerms ? (
+        <header className="border-b border-[#ECE6DA] pb-6 sm:ps-[3.5rem]">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-stone-400">
+            <span>Travel &amp; Expense Policy + Trip Request</span>
+            <span className="tabular-nums">{policyTerms.policy_ref}</span>
+          </div>
 
-        <h2 className="font-contract-serif mt-2 text-2xl font-normal tracking-[-0.015em] text-stone-900 sm:text-[26px] sm:leading-[1.25]">
-          Quote {terms.contract_ref} — {shortContractor}
-        </h2>
+          <h2 className="font-contract-serif mt-2 text-2xl font-normal tracking-[-0.015em] text-stone-900 sm:text-[26px] sm:leading-[1.25]">
+            {stripLegalSuffix(policyTerms.company)} — Trip {policyTerms.policy_ref}
+          </h2>
 
-        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 text-xs text-stone-600 sm:grid-cols-2">
-          <div>
-            <dt className="inline text-stone-400">Client: </dt>
-            <dd className="inline font-medium text-stone-800">
-              {terms.client_name}
-            </dd>
-          </div>
-          <div>
-            <dt className="inline text-stone-400">Contractor: </dt>
-            <dd className="inline font-medium text-stone-800">
-              {terms.contractor_name}
-            </dd>
-          </div>
-          <div className="sm:col-span-2">
-            <dt className="inline text-stone-400">Scope: </dt>
-            <dd className="inline text-stone-700">{terms.project}</dd>
-          </div>
-          <div>
-            <dt className="inline text-stone-400">Contract total: </dt>
-            <dd className="inline font-semibold tabular-nums text-stone-900">
-              {formatCurrency(terms.total_amount, terms.currency)}
-            </dd>
-          </div>
-          {terms.start_date ? (
+          <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 text-xs text-stone-600 sm:grid-cols-2">
             <div>
-              <dt className="inline text-stone-400">Schedule: </dt>
-              <dd className="inline tabular-nums text-stone-700">
-                {formatContractDate(terms.start_date)} –{" "}
-                {formatContractDate(terms.deadline.date)}
+              <dt className="inline text-stone-400">Traveler: </dt>
+              <dd className="inline font-medium text-stone-800">
+                {policyTerms.traveler}
               </dd>
             </div>
-          ) : null}
-        </dl>
-      </header>
+            <div>
+              <dt className="inline text-stone-400">Approved by: </dt>
+              <dd className="inline font-medium text-stone-800">
+                {policyTerms.approver}
+              </dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="inline text-stone-400">Purpose: </dt>
+              <dd className="inline text-stone-700">{policyTerms.purpose}</dd>
+            </div>
+            <div>
+              <dt className="inline text-stone-400">Approved budget: </dt>
+              <dd className="inline font-semibold tabular-nums text-stone-900">
+                {formatCurrency(policyTerms.budget.amount, policyTerms.currency)}
+              </dd>
+            </div>
+            <div>
+              <dt className="inline text-stone-400">Trip dates: </dt>
+              <dd className="inline tabular-nums text-stone-700">
+                {formatContractDate(policyTerms.trip_start)} –{" "}
+                {formatContractDate(policyTerms.trip_end)}
+              </dd>
+            </div>
+          </dl>
+        </header>
+      ) : (
+        <header className="border-b border-[#ECE6DA] pb-6 sm:ps-[3.5rem]">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-stone-400">
+            <span>Quote &amp; Service Agreement</span>
+            <span className="tabular-nums">{terms.contract_ref}</span>
+          </div>
+
+          <h2 className="font-contract-serif mt-2 text-2xl font-normal tracking-[-0.015em] text-stone-900 sm:text-[26px] sm:leading-[1.25]">
+            Quote {terms.contract_ref} — {shortContractor}
+          </h2>
+
+          <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 text-xs text-stone-600 sm:grid-cols-2">
+            <div>
+              <dt className="inline text-stone-400">Client: </dt>
+              <dd className="inline font-medium text-stone-800">
+                {terms.client_name}
+              </dd>
+            </div>
+            <div>
+              <dt className="inline text-stone-400">Contractor: </dt>
+              <dd className="inline font-medium text-stone-800">
+                {terms.contractor_name}
+              </dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="inline text-stone-400">Scope: </dt>
+              <dd className="inline text-stone-700">{terms.project}</dd>
+            </div>
+            <div>
+              <dt className="inline text-stone-400">Contract total: </dt>
+              <dd className="inline font-semibold tabular-nums text-stone-900">
+                {formatCurrency(terms.total_amount, terms.currency)}
+              </dd>
+            </div>
+            {terms.start_date ? (
+              <div>
+                <dt className="inline text-stone-400">Schedule: </dt>
+                <dd className="inline tabular-nums text-stone-700">
+                  {formatContractDate(terms.start_date)} –{" "}
+                  {formatContractDate(terms.deadline.date)}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        </header>
+      )}
 
       {/* Contract Body with Left Margin Clause Gutter */}
       <div className="font-contract-serif mt-6 space-y-3.5 text-[15px] leading-[1.68] text-stone-800">

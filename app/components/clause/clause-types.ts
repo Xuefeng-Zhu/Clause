@@ -40,8 +40,72 @@ export interface ContractTerms {
   open_questions: string[];
 }
 
+export type JobKind = "contract" | "policy";
+
+export interface ProhibitedPolicyRule {
+  description: string;
+  clause: ClauseRef;
+}
+
+export interface PolicyTerms {
+  policy_ref: string;
+  company: string;
+  traveler: string;
+  traveler_email?: string;
+  approver: string;
+  purpose: string;
+  currency: string;
+  budget: {
+    amount: number;
+    clause: ClauseRef;
+  };
+  per_charge_cap: {
+    amount: number;
+    clause: ClauseRef;
+  };
+  lodging_clause?: ClauseRef;
+  allowed_spend: {
+    categories: string[];
+    clause: ClauseRef;
+  };
+  prohibited_spend: ProhibitedPolicyRule[];
+  trip_start: string;
+  trip_end: string;
+  card_expires: {
+    date: string;
+    clause: ClauseRef;
+  };
+  exception_clause?: {
+    per_attendee_cap: number;
+    clause: ClauseRef;
+  };
+  open_questions: string[];
+}
+
+export interface ExceptionProposal {
+  client: string;
+  attendees: number;
+  attendee_names: string[];
+  max_allowed: number;
+  one_time_cap: number;
+  requested_charge?: number;
+  rationale: string;
+  source_note: string;
+  clause: ClauseRef;
+}
+
+export interface ActivePolicyException {
+  approval_id: string;
+  one_time_cap: number;
+  base_per_charge_cap: number;
+  client: string;
+  attendees: number;
+  clause: ClauseRef;
+  expires_at: string;
+}
+
 export interface CardRule {
-  control: "limit" | "merchant_categories" | "time_window" | "currency";
+  control: "limit" | "per_transaction_limit" | "merchant_categories" | "time_window" | "currency";
   description: string;
   value: string;
   clause: ClauseRef;
@@ -55,6 +119,7 @@ export interface DeclineExplanation {
   clause_id?: string;
   clause_quote?: string;
   prohibited?: boolean;
+  can_request_exception?: boolean;
 }
 
 export interface ClauseTransaction {
@@ -92,13 +157,14 @@ export interface ChangeOrderProposal {
 
 export interface PendingApproval {
   approval_id: string;
-  kind: "release_milestone" | "change_order";
+  kind: "release_milestone" | "change_order" | "policy_exception";
   milestone_id?: string;
   amount?: number;
   currency: string;
   evidence_sha256?: string;
   verdict?: EvidenceVerdict;
   change_order?: ChangeOrderProposal;
+  exception?: ExceptionProposal;
   created_at: string;
 }
 
@@ -115,6 +181,9 @@ export interface JobEvent {
     | "release_rejected"
     | "change_order_drafted"
     | "change_order_approved"
+    | "exception_requested"
+    | "exception_approved"
+    | "exception_used"
     | "card_frozen"
     | "card_closed";
   detail: string;
@@ -123,8 +192,11 @@ export interface JobEvent {
 
 export interface ClauseJob {
   id: string;
+  kind?: JobKind;
   status: "draft" | "active" | "closed";
   terms: ContractTerms;
+  policyTerms?: PolicyTerms;
+  activeException?: ActivePolicyException;
   problems: string[];
   parsedBy: string;
   cardholder_id?: string;
@@ -139,10 +211,12 @@ export interface ClauseJob {
 
 export interface JobSummary {
   id: string;
+  kind?: JobKind;
   status: "draft" | "active" | "closed";
   contractRef: string;
   contractor: string;
   client: string;
+  approver?: string;
   project: string;
   currency: string;
   total: number;
@@ -150,6 +224,11 @@ export interface JobSummary {
   spent: number;
   available: number;
   deadline: string;
+  tripStart?: string;
+  tripEnd?: string;
+  perChargeCap?: number;
+  basePerChargeCap?: number;
+  activeException?: ActivePolicyException | null;
   cardId: string | null;
   nextMilestone: {
     id: string;

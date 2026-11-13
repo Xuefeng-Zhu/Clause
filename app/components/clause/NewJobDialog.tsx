@@ -16,7 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { SAMPLE_QUOTE_TEXT } from "@/lib/clause-samples";
+import { SAMPLE_POLICY_TEXT, SAMPLE_QUOTE_TEXT } from "@/lib/clause-samples";
 import { cn } from "@/lib/utils";
 
 interface QuoteIntakeFormProps {
@@ -64,7 +64,8 @@ function QuoteIntakeForm({
   busy,
   mountParseId,
 }: QuoteIntakeFormProps) {
-  const isSample = quoteText.trim() === SAMPLE_QUOTE_TEXT.trim();
+  const isQuoteSample = quoteText.trim() === SAMPLE_QUOTE_TEXT.trim();
+  const isPolicySample = quoteText.trim() === SAMPLE_POLICY_TEXT.trim();
   const hasText = quoteText.trim().length > 0;
 
   return (
@@ -74,26 +75,46 @@ function QuoteIntakeForm({
           htmlFor={mountParseId ? "quoteTextarea" : undefined}
           className="text-xs font-medium text-stone-700"
         >
-          Contractor quote or service agreement
+          Contractor quote or travel &amp; expense policy
         </Label>
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
           <button
             type="button"
             disabled={busy}
             onClick={() => onQuoteTextChange(SAMPLE_QUOTE_TEXT)}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F7B55]/45",
-              isSample
+              isQuoteSample
                 ? "border-[#0F7B55]/30 bg-[#0F7B55]/10 text-[#0F5C3F]"
                 : "border-[#DCD5C6] bg-white text-stone-700 hover:border-[#0F7B55]/40 hover:text-[#0F7B55]",
             )}
           >
-            {isSample ? (
+            {isQuoteSample ? (
               <IconCheck className="size-3.5 text-[#0F7B55]" />
             ) : (
               <IconSparkles className="size-3.5 text-[#0F7B55]" />
             )}
             <span>Use sample quote</span>
+          </button>
+
+          <button
+            id={mountParseId ? "loadPolicySample" : undefined}
+            type="button"
+            disabled={busy}
+            onClick={() => onQuoteTextChange(SAMPLE_POLICY_TEXT)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F7B55]/45",
+              isPolicySample
+                ? "border-[#0F7B55]/30 bg-[#0F7B55]/10 text-[#0F5C3F]"
+                : "border-[#DCD5C6] bg-white text-stone-700 hover:border-[#0F7B55]/40 hover:text-[#0F7B55]",
+            )}
+          >
+            {isPolicySample ? (
+              <IconCheck className="size-3.5 text-[#0F7B55]" />
+            ) : (
+              <IconSparkles className="size-3.5 text-[#0F7B55]" />
+            )}
+            <span>Travel policy + trip request</span>
           </button>
 
           {hasText ? (
@@ -141,8 +162,10 @@ function QuoteIntakeForm({
           {busy ? (
             <>
               <IconLoader2 className="size-3.5 animate-spin" />
-              Reading quote…
+              {isPolicySample ? "Reading policy…" : "Reading quote…"}
             </>
+          ) : isPolicySample ? (
+            "Read policy & trip"
           ) : (
             "Read quote"
           )}

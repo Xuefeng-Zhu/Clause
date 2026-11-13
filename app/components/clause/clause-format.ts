@@ -1,11 +1,13 @@
-import { SAMPLE_QUOTE_TEXT } from "@/lib/clause-samples";
+import { SAMPLE_POLICY_TEXT, SAMPLE_QUOTE_TEXT } from "@/lib/clause-samples";
 
 import type {
+  ActivePolicyException,
   CardRule,
   ClauseJob,
-  ClauseRef,
   ClauseTransaction,
   ContractTerms,
+  JobSummary,
+  PolicyTerms,
 } from "./clause-types";
 
 export interface ClauseTheme {
@@ -190,6 +192,19 @@ export function formatJobTitle(client: string, project: string): string {
   return cleanProject ? `${cleanClient} — ${cleanProject}` : cleanClient;
 }
 
+export function formatWorkspaceJobTitle(summary: JobSummary): string {
+  if (summary.kind === "policy") {
+    const m = /^on-site\s+(.+?)\s+with\s+[^,]+,\s*([A-Za-z\s]+?)(?:\s+[A-Z]{2})?$/i.exec(
+      summary.project.trim(),
+    );
+    const shortTrip = m
+      ? `${m[2]!.trim()} ${m[1]!.trim()}`
+      : summary.project.trim();
+    return `${summary.contractor} — ${shortTrip} (${summary.contractRef})`;
+  }
+  return formatJobTitle(summary.client, summary.project);
+}
+
 export function formatCardLast4(cardId?: string | null): string {
   if (!cardId) return "••••";
   const digitsOnly = cardId.replace(/\D/g, "");
@@ -241,9 +256,59 @@ export function humanizeSpendCategory(cat: string): string {
       return "paint & glass";
     case "home_improvement_warehouse":
       return "supply warehouses";
+    case "lodging":
+      return "lodging";
+    case "airfare":
+      return "airfare";
+    case "ground_transport":
+      return "ground transport";
+    case "meals":
+      return "business meals";
     default:
       return cat.replace(/_/g, " ");
   }
+}
+
+export function humanizePolicyDeclineReason(txn: ClauseTransaction): string {
+  const reason = txn.failure_reason ?? txn.explanation?.failure_reason;
+  const cid = txn.explanation?.clause_id;
+  if (reason === "MERCHANT_CATEGORY_NOT_ALLOWED") {
+    if (cid === "§4.2") return "Bars & alcohol venues blocked";
+    if (cid === "§4.1") return "Electronics & gift cards blocked";
+    return "Outside travel policy categories";
+  }
+  if (reason === "LIMIT_EXCEEDED") {
+    if (cid === "§3.3") {
+      return txn.explanation?.can_request_exception
+        ? "Over single-charge cap — Request an exception (§3.4)"
+        : "Over single-charge cap";
+    }
+    return "Over approved trip budget";
+  }
+  if (reason === "OUT_OF_ALLOWED_TIME_RANGE") {
+    return "After 48h post-return expiry";
+  }
+  return humanizeDeclineReason(reason);
+}
+
+export function resolvePolicyTransactionClauseId(
+  txn: ClauseTransaction,
+  policyTerms: PolicyTerms,
+): string | undefined {
+  if (txn.failure_reason || txn.explanation) {
+    return txn.explanation?.clause_id;
+  }
+  if (txn.merchant_category_code === "7011" && policyTerms.lodging_clause) {
+    return policyTerms.lodging_clause.clause_id;
+  }
+  if (
+    ["5812", "5814"].includes(txn.merchant_category_code) &&
+    txn.amount > policyTerms.per_charge_cap.amount &&
+    policyTerms.exception_clause
+  ) {
+    return policyTerms.exception_clause.clause.clause_id;
+  }
+  return policyTerms.allowed_spend.clause.clause_id;
 }
 
 export function humanizeDeclineReason(failureReason?: string): string {
@@ -524,10 +589,344 @@ export function getRawQuoteForJob(job: ClauseJob): string {
   } catch {
     // Ignore storage errors
   }
+  if (job.kind === "policy" && job.policyTerms) {
+    if (job.policyTerms.policy_ref === "TR-2611") {
+      return SAMPLE_POLICY_TEXT;
+    }
+    return synthesizePolicyDocument(job.policyTerms);
+  }
   if (job.terms.contract_ref === "Q-2026-0412") {
     return SAMPLE_QUOTE_TEXT;
   }
   return synthesizeQuoteDocument(job.terms);
+}
+
+export function derivePolicyPlainControls(
+  policyTerms: PolicyTerms,
+  rules: CardRule[],
+  activeException?: ActivePolicyException | null,
+): PlainControlItem[] {
+  const currency = policyTerms.currency;
+  const activePerCharge = activeException
+    ? activeException.one_time_cap
+    : policyTerms.per_charge_cap.amount;
+  const perChargeClause = activeException
+    ? activeException.clause
+    : policyTerms.per_charge_cap.clause;
+  const mccRule = rules.find((r) => r.control === "merchant_categories");
+
+  const items: PlainControlItem[] = [
+    {
+      id: "budget",
+      label: `Trip budget ${formatCurrency(policyTerms.budget.amount, currency)}`,
+      detail: `Approved by ${policyTerms.approver} for ${policyTerms.policy_ref}`,
+      clauseId: policyTerms.budget.clause.clause_id,
+      clauseQuote: policyTerms.budget.clause.quote,
+      technicalTooltip: `ALL_TIME limit: ${currency} ${policyTerms.budget.amount.toLocaleString("en-US")} · Decline code: LIMIT_EXCEEDED`,
+    },
+    {
+      id: "per_transaction_limit",
+      label: activeException
+        ? `One-time exception cap ${formatCurrency(activePerCharge, currency)}`
+        : `Per-charge cap ${formatCurrency(activePerCharge, currency)}`,
+      detail: activeException
+        ? `${activeException.client} (${activeException.attendees} attendees) — restores to ${formatCurrency(policyTerms.per_charge_cap.amount, currency)} after next charge`
+        : "Single charge limit without manager pre-approval",
+      clauseId: perChargeClause.clause_id,
+      clauseQuote: perChargeClause.quote,
+      technicalTooltip: `PER_TRANSACTION limit: ${currency} ${activePerCharge.toLocaleString("en-US")} · Decline code: LIMIT_EXCEEDED`,
+    },
+    {
+      id: "merchant_categories",
+      label: "Lodging, airfare, ground transport & meals",
+      detail: policyTerms.allowed_spend.categories
+        .map(humanizeSpendCategory)
+        .join(", "),
+      clauseId: policyTerms.allowed_spend.clause.clause_id,
+      clauseQuote: policyTerms.allowed_spend.clause.quote,
+      technicalTooltip: `Allowed MCCs: ${mccRule?.value ?? "3058, 4111, 4121, 4131, 4511, 5812, 5814, 7011"} · Decline code: MERCHANT_CATEGORY_NOT_ALLOWED`,
+    },
+    ...policyTerms.prohibited_spend.map((proh, idx) => ({
+      id: `prohibited_${idx}`,
+      label:
+        proh.clause.clause_id === "§4.2"
+          ? "Bars, nightclubs & alcohol venues blocked"
+          : proh.clause.clause_id === "§4.1"
+            ? "Personal, electronics & gift cards blocked"
+            : `Blocked: ${proh.description}`,
+      detail: proh.description,
+      clauseId: proh.clause.clause_id,
+      clauseQuote: proh.clause.quote,
+      technicalTooltip:
+        "Excluded from MCC allowlist · Decline code: MERCHANT_CATEGORY_NOT_ALLOWED",
+    })),
+    {
+      id: "time_window",
+      label: `Expires ${formatContractDate(policyTerms.card_expires.date)}`,
+      detail: `48 hours after ${formatShortDate(policyTerms.trip_end)} scheduled return`,
+      clauseId: policyTerms.card_expires.clause.clause_id,
+      clauseQuote: policyTerms.card_expires.clause.quote,
+      technicalTooltip: `active_to: ${policyTerms.card_expires.date}T23:59:59-08:00 · Decline code: OUT_OF_ALLOWED_TIME_RANGE`,
+    },
+  ];
+
+  return items;
+}
+
+export function collectPolicyExtractedClauses(
+  policyTerms: PolicyTerms,
+  activeException?: ActivePolicyException | null,
+): ExtractedClauseEntry[] {
+  const list: ExtractedClauseEntry[] = [
+    {
+      clauseId: policyTerms.card_expires.clause.clause_id,
+      quote: policyTerms.card_expires.clause.quote,
+      heading: `Card expiry · ${formatContractDate(policyTerms.card_expires.date)}`,
+    },
+    {
+      clauseId: policyTerms.budget.clause.clause_id,
+      quote: policyTerms.budget.clause.quote,
+      heading: "Approved trip budget",
+      rightBadge: formatCurrency(policyTerms.budget.amount, policyTerms.currency),
+    },
+  ];
+
+  if (policyTerms.lodging_clause) {
+    list.push({
+      clauseId: policyTerms.lodging_clause.clause_id,
+      quote: policyTerms.lodging_clause.quote,
+      heading: "Lodging allowance",
+    });
+  }
+
+  list.push({
+    clauseId: policyTerms.allowed_spend.clause.clause_id,
+    quote: policyTerms.allowed_spend.clause.quote,
+    heading: "Allowed travel categories",
+  });
+
+  list.push({
+    clauseId: policyTerms.per_charge_cap.clause.clause_id,
+    quote: policyTerms.per_charge_cap.clause.quote,
+    heading: "Single-charge cap",
+    rightBadge: formatCurrency(
+      policyTerms.per_charge_cap.amount,
+      policyTerms.currency,
+    ),
+    ...(activeException
+      ? {
+          amendedNote: `One-time exception: ${formatCurrency(activeException.one_time_cap, policyTerms.currency)}`,
+        }
+      : {}),
+  });
+
+  if (policyTerms.exception_clause) {
+    list.push({
+      clauseId: policyTerms.exception_clause.clause.clause_id,
+      quote: policyTerms.exception_clause.clause.quote,
+      heading: "Client entertainment exception",
+      rightBadge: `${formatCurrency(policyTerms.exception_clause.per_attendee_cap, policyTerms.currency)}/attendee`,
+    });
+  }
+
+  for (const proh of policyTerms.prohibited_spend) {
+    list.push({
+      clauseId: proh.clause.clause_id,
+      quote: proh.clause.quote,
+      heading: "Not reimbursable",
+    });
+  }
+
+  return list;
+}
+
+function synthesizePolicyDocument(pt: PolicyTerms): string {
+  const lines: string[] = [
+    `${pt.company.toUpperCase()} — TRAVEL & EXPENSE POLICY`,
+    "",
+    "§2 Trip cards",
+    `  ${pt.card_expires.clause.clause_id.replace(/^§/, "")} ${pt.card_expires.clause.quote}`,
+    `  ${pt.budget.clause.clause_id.replace(/^§/, "")} ${pt.budget.clause.quote}`,
+    "",
+    "§3 Allowed spend",
+    ...(pt.lodging_clause
+      ? [`  ${pt.lodging_clause.clause_id.replace(/^§/, "")} ${pt.lodging_clause.quote}`]
+      : []),
+    `  ${pt.allowed_spend.clause.clause_id.replace(/^§/, "")} ${pt.allowed_spend.clause.quote}`,
+    `  ${pt.per_charge_cap.clause.clause_id.replace(/^§/, "")} ${pt.per_charge_cap.clause.quote}`,
+    ...(pt.exception_clause
+      ? [`  ${pt.exception_clause.clause.clause_id.replace(/^§/, "")} ${pt.exception_clause.clause.quote}`]
+      : []),
+    "",
+    "§4 Not reimbursable",
+    ...pt.prohibited_spend.map(
+      (p) => `  ${p.clause.clause_id.replace(/^§/, "")} ${p.clause.quote}`,
+    ),
+    "",
+    "----------------------------------------------------------------",
+    `TRIP REQUEST ${pt.policy_ref} — APPROVED by ${pt.approver}`,
+    `Traveler: ${pt.traveler}`,
+    `Purpose: ${pt.purpose}`,
+    `Dates: ${pt.trip_start} – ${pt.trip_end}`,
+    `Approved budget: ${pt.currency} ${pt.budget.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}`,
+  ];
+  return lines.join("\n");
+}
+
+function unwrapPolicyParagraphs(rawText: string): string[] {
+  const rawLines = rawText.replace(/\r\n/g, "\n").split("\n");
+  const bodyLines: string[] = [];
+  let seenFirstSection = false;
+  for (const line of rawLines) {
+    if (/^§\d+\b/.test(line.trim())) seenFirstSection = true;
+    if (!seenFirstSection) continue;
+    bodyLines.push(line);
+  }
+  const source = bodyLines.length > 0 ? bodyLines : rawLines;
+  const paragraphs: string[] = [];
+  let current = "";
+  let inTripBlock = false;
+
+  for (const line of source) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (current) {
+        paragraphs.push(current);
+        current = "";
+      }
+      continue;
+    }
+    if (/^-{4,}$/.test(trimmed)) {
+      if (current) {
+        paragraphs.push(current);
+        current = "";
+      }
+      inTripBlock = true;
+      paragraphs.push("§Approved Trip Request");
+      continue;
+    }
+    if (inTripBlock) {
+      paragraphs.push(trimmed);
+      continue;
+    }
+    const isSectionHeading = /^§\d+\b/.test(trimmed);
+    const isNumberedClause = /^\d+\.\d+\b/.test(trimmed);
+    if (isSectionHeading) {
+      if (current) {
+        paragraphs.push(current);
+        current = "";
+      }
+      paragraphs.push(trimmed);
+    } else if (isNumberedClause) {
+      if (current) paragraphs.push(current);
+      current = trimmed;
+    } else if (current) {
+      current = `${current} ${trimmed}`;
+    } else {
+      current = trimmed;
+    }
+  }
+  if (current) paragraphs.push(current);
+  return paragraphs;
+}
+
+export function buildPolicyBlocks(
+  rawText: string,
+  policyTerms: PolicyTerms,
+  activeException?: ActivePolicyException | null,
+): {
+  blocks: DocumentBlock[];
+  unmatchedClauses: ExtractedClauseEntry[];
+} {
+  const clauses = collectPolicyExtractedClauses(policyTerms, activeException);
+  const matchedClauseIds = new Set<string>();
+  const paragraphs = unwrapPolicyParagraphs(rawText);
+  const blocks: DocumentBlock[] = [];
+
+  paragraphs.forEach((para, idx) => {
+    if (para === "§Approved Trip Request") {
+      blocks.push({
+        id: `sec-trip-${idx}`,
+        type: "section_heading",
+        marginClauseIds: [],
+        segments: [{ kind: "plain", text: "Approved Trip Request" }],
+      });
+      return;
+    }
+    if (/^§\d+\b/.test(para)) {
+      blocks.push({
+        id: `sec-${idx}`,
+        type: "section_heading",
+        marginClauseIds: [],
+        segments: [{ kind: "plain", text: para }],
+      });
+      return;
+    }
+
+    const spans: Array<{
+      start: number;
+      end: number;
+      entry: ExtractedClauseEntry;
+    }> = [];
+
+    for (const entry of clauses) {
+      if (matchedClauseIds.has(entry.clauseId)) continue;
+      const found = findWhitespaceTolerantSpan(para, entry.quote);
+      if (found) {
+        let start = found.start;
+        const prefix = para.slice(0, start);
+        if (/^\d+\.\d+\s+$/.test(prefix)) {
+          start = 0;
+        }
+        spans.push({ start, end: found.end, entry });
+        matchedClauseIds.add(entry.clauseId);
+      }
+    }
+
+    spans.sort((a, b) => a.start - b.start);
+
+    if (spans.length === 0) {
+      blocks.push({
+        id: `p-${idx}`,
+        type: "body_paragraph",
+        marginClauseIds: [],
+        segments: [{ kind: "plain", text: para }],
+      });
+      return;
+    }
+
+    const segments: DocumentSegment[] = [];
+    let cursor = 0;
+    for (const sp of spans) {
+      if (sp.start > cursor) {
+        segments.push({ kind: "plain", text: para.slice(cursor, sp.start) });
+      }
+      segments.push({
+        kind: "clause",
+        text: para.slice(sp.start, sp.end),
+        entry: sp.entry,
+      });
+      cursor = sp.end;
+    }
+    if (cursor < para.length) {
+      segments.push({ kind: "plain", text: para.slice(cursor) });
+    }
+
+    const primary = spans[0]!.entry;
+    blocks.push({
+      id: `clause-${idx}-${primary.clauseId}`,
+      type: "clause_paragraph",
+      marginClauseIds: spans.map((s) => s.entry.clauseId),
+      ...(primary.rightBadge ? { rightBadge: primary.rightBadge } : {}),
+      ...(primary.amendedNote ? { amendedNote: primary.amendedNote } : {}),
+      segments,
+    });
+  });
+
+  const unmatchedClauses = clauses.filter(
+    (c) => !matchedClauseIds.has(c.clauseId),
+  );
+  return { blocks, unmatchedClauses };
 }
 
 function synthesizeQuoteDocument(terms: ContractTerms): string {
