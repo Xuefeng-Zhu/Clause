@@ -18,8 +18,28 @@ import {
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
-import { cleanVerdictReasoning, formatRelativeTime } from "./clause-format";
+import {
+  cleanVerdictReasoning,
+  formatCurrency,
+  formatRelativeTime,
+} from "./clause-format";
 import type { JobEvent } from "./clause-types";
+
+function formatAuditDetail(detail: string): string {
+  const cleaned = cleanVerdictReasoning(detail)
+    .replace(
+      /agent says "meets"\.\s*/i,
+      "verified — meets contract requirements. ",
+    )
+    .replace(
+      /agent says "insufficient"\.\s*/i,
+      "flagged — missing required documentation. ",
+    )
+    .replace(/\bUSD\s+(\d+(?:\.\d+)?)/g, (_m, num) =>
+      formatCurrency(Number(num), "USD"),
+    );
+  return cleaned;
+}
 
 function eventActorAndIcon(type: JobEvent["type"]) {
   switch (type) {
@@ -52,7 +72,7 @@ function eventActorAndIcon(type: JobEvent["type"]) {
     case "charge_declined":
     case "release_rejected":
       return {
-        actor: "Policy enforcement",
+        actor: "Clause enforcement",
         Icon: IconX,
         tone: "bg-rose-500/15 text-rose-700",
       };
@@ -105,7 +125,7 @@ export function ActivitySheet({
           </SheetTitle>
           <SheetDescription className="mt-1 text-xs text-stone-600">
             {contractRef
-              ? `Immutable audit trail of owner approvals, card controls, and authorizations for ${contractRef}.`
+              ? `Immutable audit trail of approvals, derived card rules, and authorizations for ${contractRef}.`
               : "Audit trail of contract approvals and card activity."}
           </SheetDescription>
         </div>
@@ -145,13 +165,14 @@ export function ActivitySheet({
                         </span>
                         <time
                           dateTime={ev.at}
+                          title={ev.at}
                           className="shrink-0 text-[11px] tabular-nums text-stone-400"
                         >
                           {formatRelativeTime(ev.at)}
                         </time>
                       </div>
                       <p className="mt-0.5 text-xs leading-relaxed text-stone-600">
-                        {cleanVerdictReasoning(ev.detail)}
+                        {formatAuditDetail(ev.detail)}
                       </p>
                     </div>
                   </li>

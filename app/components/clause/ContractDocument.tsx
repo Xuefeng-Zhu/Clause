@@ -173,7 +173,10 @@ export function ContractDocument({
                   </p>
 
                   {block.rightBadge ? (
-                    <span className="hidden shrink-0 font-sans text-sm font-medium tabular-nums text-stone-900 md:inline">
+                    <span
+                      data-clause-badge={primaryTag}
+                      className="hidden shrink-0 font-sans text-sm font-medium tabular-nums text-stone-900 md:inline"
+                    >
                       {block.rightBadge}
                     </span>
                   ) : null}

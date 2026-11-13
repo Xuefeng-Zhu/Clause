@@ -104,8 +104,19 @@ export function ConnectorOverlay({
           ? clientRects[0]!
           : clauseEl.getBoundingClientRect();
 
-      const x1 = firstLineRect.right - rootRect.left + 4;
+      let x1 = firstLineRect.right - rootRect.left + 5;
       const y1 = firstLineRect.top + firstLineRect.height / 2 - rootRect.top;
+
+      // Avoid crossing right-aligned milestone amount badges on the same line
+      const badgeEl = root.querySelector<HTMLElement>(
+        `[data-clause-badge="${escaped}"]`,
+      );
+      if (badgeEl) {
+        const badgeRect = badgeEl.getBoundingClientRect();
+        if (badgeRect.width > 0) {
+          x1 = Math.max(x1, badgeRect.right - rootRect.left + 6);
+        }
+      }
       const x2 = dotRect.left - rootRect.left - 1;
       const y2 = dotRect.top + dotRect.height / 2 - rootRect.top;
 

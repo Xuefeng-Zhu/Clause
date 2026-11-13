@@ -363,12 +363,13 @@ export function ActionBar({
               {isActive && !pendingRelease && !pendingCo ? (
                 <>
                   <Button
+                    data-open-co="true"
                     type="button"
                     variant="outline"
                     size="sm"
                     disabled={isBusy}
                     onClick={() => onCoSheetOpenChange(true)}
-                    className="h-9 border-[#DCD5C6] bg-white/85 text-xs font-medium text-stone-800 hover:bg-white"
+                    className="h-9 border-[#DCD5C6] bg-white/85 text-xs font-medium text-stone-800 hover:bg-white focus-visible:ring-[#0F7B55]/45"
                   >
                     <IconFileDiff className="size-3.5 text-stone-500" />
                     Propose change order
@@ -376,6 +377,7 @@ export function ActionBar({
 
                   {summary.nextMilestone ? (
                     <Button
+                      data-open-proof="true"
                       type="button"
                       disabled={isBusy}
                       onClick={() => onProofSheetOpenChange(true)}

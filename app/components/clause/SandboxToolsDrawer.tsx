@@ -26,7 +26,6 @@ const SANDBOX_PRESETS: ReadonlyArray<{
   mcc: string;
   category: string;
   amount: number;
-  note?: string;
 }> = [
   {
     key: "lumber",
@@ -58,6 +57,29 @@ const SANDBOX_PRESETS: ReadonlyArray<{
   },
 ];
 
+function formatEnvironmentLabel(runtime?: RuntimeInfo): string {
+  if (!runtime) return "Sandbox";
+  return runtime.airwallexMode === "sandbox"
+    ? "Airwallex Sandbox"
+    : "Local card sandbox";
+}
+
+function formatEndpointLabel(runtime?: RuntimeInfo): string {
+  if (!runtime?.airwallexBaseUrl) return "—";
+  if (runtime.airwallexMode === "sandbox") {
+    return runtime.airwallexBaseUrl.replace(/^https?:\/\//, "");
+  }
+  return "In-process issuing engine";
+}
+
+function formatParserLabel(runtime?: RuntimeInfo): string {
+  if (!runtime?.model) return "—";
+  if (runtime.model.toLowerCase().includes("offline")) {
+    return "Built-in contract schema";
+  }
+  return runtime.model;
+}
+
 interface SandboxToolsDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -86,7 +108,7 @@ export function SandboxToolsDrawer({
   onResetWorkspace,
 }: SandboxToolsDrawerProps) {
   const [customOpen, setCustomOpen] = useState(false);
-  const [merchantName, setMerchantName] = useState("builders Supply Co.");
+  const [merchantName, setMerchantName] = useState("Builders Supply Co.");
   const [mcc, setMcc] = useState("5211");
   const [amountStr, setAmountStr] = useState("450");
 
@@ -102,7 +124,7 @@ export function SandboxToolsDrawer({
           </SheetTitle>
           <SheetDescription className="mt-1 text-xs text-stone-600">
             Send test card authorizations against the active contract’s
-            live Airwallex controls.
+            live spending controls.
           </SheetDescription>
         </div>
 
@@ -127,19 +149,24 @@ export function SandboxToolsDrawer({
                   disabled={!canCharge || busy}
                   onClick={() => onRunPresetCharge(preset.key)}
                   className={cn(
-                    "flex w-full items-center justify-between gap-3 rounded-xl border border-[#E4DECFE6] bg-white px-3.5 py-3 text-left transition-all hover:border-[#0F7B55]/40 hover:shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F7B55]/45 disabled:cursor-not-allowed disabled:opacity-50",
+                    "group flex w-full items-center justify-between gap-3 rounded-xl border border-[#E4DECFE6] bg-white px-3.5 py-3 text-left transition-all hover:border-[#0F7B55]/45 hover:shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F7B55]/45 disabled:cursor-not-allowed disabled:opacity-50",
                   )}
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#F4F1EA] text-stone-600">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#F4F1EA] text-stone-600 transition-colors group-hover:bg-[#EBF4EE] group-hover:text-[#0F7B55]">
                       <IconCreditCard className="size-4" />
                     </span>
                     <div className="min-w-0">
-                      <div className="truncate text-xs font-semibold text-stone-900">
-                        {preset.merchant}
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-xs font-semibold text-stone-900">
+                          {preset.merchant}
+                        </span>
+                        <span className="shrink-0 rounded bg-[#F3EFE6] px-1.5 py-0.5 font-mono text-[10px] font-medium text-stone-600">
+                          MCC {preset.mcc}
+                        </span>
                       </div>
-                      <div className="truncate text-[11px] text-stone-500">
-                        MCC {preset.mcc} · {preset.category}
+                      <div className="mt-0.5 truncate text-[11px] text-stone-500">
+                        {preset.category}
                       </div>
                     </div>
                   </div>
@@ -152,11 +179,11 @@ export function SandboxToolsDrawer({
           </div>
 
           {/* Custom charge disclosure */}
-          <div className="rounded-xl border border-[#E6E0D4] bg-white/75">
+          <div className="rounded-xl border border-[#E6E0D4] bg-white/80">
             <button
               type="button"
               onClick={() => setCustomOpen((v) => !v)}
-              className="flex w-full items-center justify-between px-3.5 py-2.5 text-xs font-medium text-stone-700 hover:text-stone-900"
+              className="flex w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-xs font-medium text-stone-700 hover:text-stone-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0F7B55]/45"
             >
               <span>Custom authorization</span>
               <IconChevronDown
@@ -232,29 +259,36 @@ export function SandboxToolsDrawer({
           </div>
 
           {/* Environment & parser diagnostics */}
-          <div className="space-y-2 pt-2">
+          <div className="space-y-2 pt-1">
             <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-stone-400">
-              Environment
+              Environment &amp; parser
             </div>
-            <dl className="divide-y divide-[#ECE6DA] rounded-xl border border-[#E6E0D4] bg-white/75 px-3.5 py-1 text-xs">
+            <dl className="divide-y divide-[#ECE6DA] rounded-xl border border-[#E6E0D4] bg-white/80 px-3.5 py-1 text-xs">
+              <div className="flex items-center justify-between gap-2 py-2">
+                <dt className="text-stone-500">Environment</dt>
+                <dd
+                  title={runtime?.airwallexMode}
+                  className="font-medium text-stone-800"
+                >
+                  {formatEnvironmentLabel(runtime)}
+                </dd>
+              </div>
               <div className="flex items-center justify-between gap-2 py-2">
                 <dt className="text-stone-500">Issuing gateway</dt>
-                <dd className="font-mono text-[11px] text-stone-800">
-                  {runtime?.airwallexMode === "sandbox"
-                    ? "Airwallex Sandbox"
-                    : "Local test gateway"}
+                <dd
+                  title={runtime?.airwallexBaseUrl}
+                  className="max-w-[210px] truncate font-mono text-[11px] text-stone-600"
+                >
+                  {formatEndpointLabel(runtime)}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-2 py-2">
-                <dt className="text-stone-500">Endpoint</dt>
-                <dd className="truncate max-w-[210px] font-mono text-[11px] text-stone-600">
-                  {runtime?.airwallexBaseUrl ?? "—"}
-                </dd>
-              </div>
-              <div className="flex items-center justify-between gap-2 py-2">
-                <dt className="text-stone-500">Contract parser</dt>
-                <dd className="truncate max-w-[210px] font-mono text-[11px] text-stone-800">
-                  {runtime?.model ?? "—"}
+                <dt className="text-stone-500">Parser model</dt>
+                <dd
+                  title={runtime?.model}
+                  className="max-w-[210px] truncate font-mono text-[11px] text-stone-800"
+                >
+                  {formatParserLabel(runtime)}
                 </dd>
               </div>
             </dl>
