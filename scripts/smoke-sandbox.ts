@@ -21,7 +21,7 @@ const log = (step: string, x: unknown) => console.log(`\n== ${step}\n`, JSON.str
 let job = await svc.createJob({ kind: "text", text: quote });
 log("1 parsed", { status: job.status, ref: job.terms.contract_ref });
 job = await svc.approveTerms(job.id);
-log("2 card issued", { card: job.card?.card_id, ...summarize(job) });
+log("2 card issued", { card: job.card_id, ...summarize(job) });
 log("3 lumber $1,180 @5211", (await svc.simulateCharge(job.id, { amount: 1180, merchant_name: "Dunn Lumber", mcc: "5211" })).explanation ?? "APPROVED");
 log("4 lunch $86.40 @5812", (await svc.simulateCharge(job.id, { amount: 86.4, merchant_name: "Taphouse", mcc: "5812" })).explanation);
 log("5 over limit $3,000 @5211", (await svc.simulateCharge(job.id, { amount: 3000, merchant_name: "Dunn Lumber", mcc: "5211" })).explanation);
