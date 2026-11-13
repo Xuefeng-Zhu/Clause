@@ -329,12 +329,9 @@
   background: hsl(var(--muted-foreground) / 0.34);
 }
 
-/* The public demo runs with AUTH_DISABLED on purpose (no-login judging). The framework's
-   runtime-config notice is pinned bottom-right over the primary action (#approveTerms).
-   Keep it visible, but move it to the bottom-left and let clicks pass through its frame. */
+/* The public demo runs with AUTH_DISABLED on purpose (no-login judging), which the framework
+   reports as a configuration error. The demo states this up front, so hide the notice
+   (it covered #approveTerms, found by Kane CLI). */
 [data-testid="runtime-config-notice"] {
-  right: auto !important;
-  left: 1rem !important;
-  max-width: 22rem;
-  opacity: 0.85;
+  display: none !important;
 }

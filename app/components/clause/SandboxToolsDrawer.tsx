@@ -431,7 +431,7 @@ export function SandboxToolsDrawer({
             className="w-full border-[#DCD5C6] bg-white text-xs font-medium text-stone-700 hover:bg-stone-100 hover:text-stone-900"
           >
             <IconRefresh className="size-3.5" />
-            Reset workspace
+            Reset demo
           </Button>
         </div>
       </SheetContent>
