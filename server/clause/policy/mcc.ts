@@ -6,7 +6,7 @@ import type { PolicySpendCategory } from "../expense/schema.js";
  * Review this table before the demo; it's the whole "what counts as building supplies" policy.
  */
 export const MCC_BY_CATEGORY: Record<SpendCategory, { mccs: string[]; label: string }> = {
-  building_materials: { mccs: ["5039", "5211"], label: "Construction & building materials" },
+  building_materials: { mccs: ["5039", "5211", "5200"], label: "Construction & building materials (incl. home supply warehouses)" },
   lumber: { mccs: ["5211"], label: "Lumber & building materials stores" },
   hardware: { mccs: ["5072", "5251"], label: "Hardware stores & hardware supplies" },
   plumbing_supplies: { mccs: ["5074"], label: "Plumbing & heating equipment" },
