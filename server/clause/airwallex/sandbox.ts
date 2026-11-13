@@ -37,8 +37,28 @@ export class SandboxIssuingGateway implements IssuingGateway {
   async createDelegateCardholder(email: string): Promise<Cardholder> {
     const preset = config.awx.cardholderId;
     if (preset) return { cardholder_id: preset, email, type: "DELEGATE", status: "READY" };
-    const res = await this.awx.post<any>("/issuing/cardholders/create", { type: "DELEGATE", email });
-    return { cardholder_id: res.cardholder_id ?? res.id, email, type: "DELEGATE", status: res.status };
+    try {
+      const res = await this.awx.post<any>("/issuing/cardholders/create", { type: "DELEGATE", email });
+      return { cardholder_id: res.cardholder_id ?? res.id, email, type: "DELEGATE", status: res.status };
+    } catch (err) {
+      // Re-running the demo reuses the same cardholder email; Airwallex rejects duplicates,
+      // so look up and reuse the existing cardholder instead of failing.
+      if (!/already associated with a cardholder/i.test(String(err))) throw err;
+      const existing = await this.findCardholderByEmail(email);
+      if (!existing) throw err;
+      return existing;
+    }
+  }
+
+  private async findCardholderByEmail(email: string): Promise<Cardholder | undefined> {
+    for (let page = 0; page < 20; page++) {
+      const res = await this.awx.get<any>(`/issuing/cardholders?page_num=${page}&page_size=100`);
+      const items: any[] = res.items ?? [];
+      const hit = items.find((c) => (c.email ?? "").toLowerCase() === email.toLowerCase());
+      if (hit) return { cardholder_id: hit.cardholder_id ?? hit.id, email, type: "DELEGATE", status: hit.status };
+      if (!res.has_more || items.length === 0) return undefined;
+    }
+    return undefined;
   }
 
   async createCard(input: { cardholder_id: string; nick_name: string; authorization_controls: AuthorizationControls }): Promise<Card> {
