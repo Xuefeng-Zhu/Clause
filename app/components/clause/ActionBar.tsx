@@ -96,6 +96,7 @@ export function ActionBar({
   onApproveChangeOrder,
   onRejectPending,
 }: ActionBarProps) {
+  const isPolicy = job.kind === "policy" || summary.kind === "policy";
   const isDraft = summary.status === "draft";
   const isActive = summary.status === "active";
   const isClosed = summary.status === "closed";
@@ -105,9 +106,14 @@ export function ActionBar({
   const pendingRelease =
     pending?.kind === "release_milestone" ? pending : null;
   const pendingCo = pending?.kind === "change_order" ? pending : null;
+  const pendingException =
+    pending?.kind === "policy_exception" ? pending : null;
 
   const hasValidationBlockers =
-    job.problems.length > 0 || job.terms.open_questions.length > 0;
+    job.problems.length > 0 ||
+    (isPolicy && job.policyTerms
+      ? job.policyTerms.open_questions.length > 0
+      : job.terms.open_questions.length > 0);
 
   // Compute Change Order diff metrics when pendingCo is present
   const coDiff = (() => {
@@ -238,13 +244,46 @@ export function ActionBar({
                 </div>
               ) : isDraft ? (
                 <span>
-                  Review highlighted clauses and card controls before issuing
-                  the contractor’s card.
+                  {isPolicy
+                    ? "Review highlighted policy clauses and card controls before issuing the trip card."
+                    : "Review highlighted clauses and card controls before issuing the contractor’s card."}
                 </span>
               ) : isClosed ? (
                 <span>
-                  Contract closed · Virtual card permanently deactivated.
+                  {isPolicy
+                    ? "Trip closed · Virtual card permanently deactivated."
+                    : "Contract closed · Virtual card permanently deactivated."}
                 </span>
+              ) : isPolicy ? (
+                pendingException ? (
+                  <span>
+                    Exception requested (
+                    <strong className="font-semibold text-stone-900">
+                      {pendingException.exception?.clause.clause_id ?? "§3.4"}
+                    </strong>
+                    ) — review manager approval card in Live enforcement.
+                  </span>
+                ) : summary.activeException ? (
+                  <span>
+                    One-time exception active up to{" "}
+                    <strong className="font-semibold tabular-nums text-[#0F7B55]">
+                      {formatCurrency(
+                        summary.activeException.one_time_cap,
+                        summary.currency,
+                      )}
+                    </strong>{" "}
+                    ({summary.activeException.clause.clause_id}) · Resets after
+                    next approved charge.
+                  </span>
+                ) : (
+                  <span>
+                    In-policy swipes settle directly on the company card —{" "}
+                    <strong className="font-medium text-stone-900">
+                      $0.00 to reimburse
+                    </strong>
+                    .
+                  </span>
+                )
               ) : pendingRelease ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <span
@@ -301,11 +340,13 @@ export function ActionBar({
                   onClick={onApproveTerms}
                   className="h-9 rounded-lg bg-[#0F7B55] px-4 text-xs font-semibold text-white shadow-xs hover:bg-[#0C6646] focus-visible:ring-[#0F7B55]/45"
                 >
-                  Approve &amp; issue card
+                  {isPolicy
+                    ? "Approve & issue trip card"
+                    : "Approve & issue card"}
                 </Button>
               ) : null}
 
-              {isActive && pendingRelease ? (
+              {!isPolicy && isActive && pendingRelease ? (
                 <>
                   <Button
                     type="button"
@@ -334,7 +375,7 @@ export function ActionBar({
                 </>
               ) : null}
 
-              {isActive && pendingCo ? (
+              {!isPolicy && isActive && pendingCo ? (
                 <>
                   <Button
                     type="button"
@@ -360,7 +401,7 @@ export function ActionBar({
                 </>
               ) : null}
 
-              {isActive && !pendingRelease && !pendingCo ? (
+              {!isPolicy && isActive && !pendingRelease && !pendingCo ? (
                 <>
                   <Button
                     data-open-co="true"

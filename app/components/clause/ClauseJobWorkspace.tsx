@@ -33,10 +33,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  ALL_PRESET_CHARGES,
   type ChargePresetKey,
   type DeclaredProofKind,
-  PRESET_CHARGES,
   SAMPLE_CHANGE_ORDER_EMAIL_TEXT,
+  SAMPLE_EXCEPTION_NOTE_TEXT,
   SAMPLE_QUOTE_TEXT,
 } from "@/lib/clause-samples";
 import { cn } from "@/lib/utils";
@@ -52,7 +53,7 @@ import { SandboxToolsDrawer } from "./SandboxToolsDrawer";
 import { ContractorPhone } from "./ContractorPhone";
 import {
   formatCurrency,
-  formatJobTitle,
+  formatWorkspaceJobTitle,
   saveRawQuoteForJob,
   stripLegalSuffix,
 } from "./clause-format";
@@ -194,6 +195,8 @@ export function ClauseJobWorkspace() {
   const rejectPendingMut = useActionMutation("reject-pending");
   const draftCoMut = useActionMutation("draft-change-order");
   const approveCoMut = useActionMutation("approve-change-order");
+  const requestExceptionMut = useActionMutation("request-exception");
+  const approveExceptionMut = useActionMutation("approve-exception");
   const freezeCardMut = useActionMutation("freeze-card");
   const closeJobMut = useActionMutation("close-job");
   const resetDemoMut = useActionMutation("reset-demo");
@@ -201,6 +204,7 @@ export function ClauseJobWorkspace() {
   // UI sheets / dialogs / clause highlight state
   const [quoteText, setQuoteText] = useState("");
   const [coEmailText, setCoEmailText] = useState(SAMPLE_CHANGE_ORDER_EMAIL_TEXT);
+  const [exceptionNote, setExceptionNote] = useState(SAMPLE_EXCEPTION_NOTE_TEXT);
   const [proofKind, setProofKind] = useState<DeclaredProofKind>("photos");
   const [stagedProofFiles, setStagedProofFiles] = useState<
     UploadableProofFile[]
@@ -297,6 +301,8 @@ export function ClauseJobWorkspace() {
   const pendingRelease =
     pending?.kind === "release_milestone" ? pending : null;
   const pendingCo = pending?.kind === "change_order" ? pending : null;
+  const pendingException =
+    pending?.kind === "policy_exception" ? pending : null;
 
   function handleSelectClause(clauseId: string) {
     setPinnedClauseId((prev) => (prev === clauseId ? null : clauseId));
@@ -316,7 +322,7 @@ export function ClauseJobWorkspace() {
     const trimmed = quoteText.trim();
     const usedText = trimmed || SAMPLE_QUOTE_TEXT;
     await runExclusive(
-      "Reading quote…",
+      "Reading document…",
       () =>
         parseQuoteMut.mutateAsync(
           trimmed ? { text: trimmed } : { useSample: true },
@@ -333,7 +339,9 @@ export function ClauseJobWorkspace() {
           { replace: true },
         );
         toast.success(
-          `Extracted ${res.terms.milestones.length} milestones from ${res.summary.contractRef}.`,
+          res.kind === "policy"
+            ? `Extracted policy controls & ${formatCurrency(res.summary.total, res.summary.currency)} budget from ${res.summary.contractRef}.`
+            : `Extracted ${res.terms.milestones.length} milestones from ${res.summary.contractRef}.`,
         );
         if (!trimmed) {
           setQuoteText(SAMPLE_QUOTE_TEXT);
@@ -349,7 +357,9 @@ export function ClauseJobWorkspace() {
       () => approveTermsMut.mutateAsync({ jobId: activeJobId }),
       (res) => {
         toast.success(
-          `Virtual card issued with ${formatCurrency(res.summary.released, res.summary.currency)} limit.`,
+          res.summary.kind === "policy"
+            ? `Trip card issued with ${formatCurrency(res.summary.released, res.summary.currency)} budget and ${formatCurrency(res.summary.perChargeCap ?? 300, res.summary.currency)} per-charge cap.`
+            : `Virtual card issued with ${formatCurrency(res.summary.released, res.summary.currency)} limit.`,
         );
       },
     );
@@ -357,7 +367,7 @@ export function ClauseJobWorkspace() {
 
   async function handleRunPresetCharge(preset: ChargePresetKey) {
     if (!activeJobId) return;
-    const presetMeta = PRESET_CHARGES.find((p) => p.key === preset);
+    const presetMeta = ALL_PRESET_CHARGES.find((p) => p.key === preset);
     await runExclusive(
       `Authorizing ${presetMeta?.label ?? preset}…`,
       () =>
@@ -551,6 +561,47 @@ export function ClauseJobWorkspace() {
     );
   }
 
+  async function handleRequestException() {
+    if (!activeJobId) return;
+    const trimmed = exceptionNote.trim();
+    await runExclusive(
+      "Evaluating §3.4 exception…",
+      () =>
+        requestExceptionMut.mutateAsync(
+          trimmed
+            ? { jobId: activeJobId, note: trimmed }
+            : { jobId: activeJobId, useSample: true },
+        ),
+      (res) => {
+        const cap = res.proposal?.one_time_cap;
+        toast.success(
+          cap
+            ? `Exception proposed up to ${formatCurrency(cap, res.summary.currency)} (${res.proposal?.clause.clause_id ?? "§3.4"}). Waiting for manager approval.`
+            : "Exception request staged for manager approval.",
+        );
+      },
+    );
+  }
+
+  async function handleApproveException() {
+    if (!activeJobId || !pendingException) return;
+    await runExclusive(
+      "Updating per-charge card limit…",
+      () =>
+        approveExceptionMut.mutateAsync({
+          jobId: activeJobId,
+          approvalId: pendingException.approval_id,
+        }),
+      (res) => {
+        const cap =
+          res.activeException?.one_time_cap ?? res.summary.perChargeCap ?? 500;
+        toast.success(
+          `Exception approved. Next charge allowed up to ${formatCurrency(cap, res.summary.currency)}.`,
+        );
+      },
+    );
+  }
+
   async function handleRejectPending() {
     if (!activeJobId || !pending) return;
     await runExclusive(
@@ -603,6 +654,7 @@ export function ClauseJobWorkspace() {
         setStagedProofFiles([]);
         setQuoteText("");
         setCoEmailText(SAMPLE_CHANGE_ORDER_EMAIL_TEXT);
+        setExceptionNote(SAMPLE_EXCEPTION_NOTE_TEXT);
         setSandboxOpen(false);
         setProofSheetOpen(false);
         setCoSheetOpen(false);
@@ -615,8 +667,10 @@ export function ClauseJobWorkspace() {
 
   function askClauseAboutDecline(txnId: string, headline: string) {
     if (!activeJobId) return;
+    const clauseNoun =
+      job?.kind === "policy" ? "policy clause" : "contract clause";
     sendToAgentChat({
-      message: `Explain why this card charge was declined and cite the contract clause: "${headline}"`,
+      message: `Explain why this card charge was declined and cite the ${clauseNoun}: "${headline}"`,
       context: JSON.stringify({ jobId: activeJobId, transactionId: txnId }),
       submit: true,
       openSidebar: true,
@@ -626,9 +680,7 @@ export function ClauseJobWorkspace() {
   const isInitialLoading =
     listQuery.isLoading || (Boolean(activeJobId) && jobQuery.isLoading && !job);
 
-  const jobDisplayTitle = summary
-    ? formatJobTitle(summary.client, summary.project)
-    : null;
+  const jobDisplayTitle = summary ? formatWorkspaceJobTitle(summary) : null;
 
   const statusPill = (() => {
     if (!summary) return null;
@@ -665,7 +717,7 @@ export function ClauseJobWorkspace() {
     : "CL";
 
   const connectorDepKey = job
-    ? `${job.id}:${job.status}:${job.transactions.length}:${job.terms.deadline.date}:${job.releasedMilestoneIds.join(",")}`
+    ? `${job.id}:${job.status}:${job.transactions.length}:${job.terms.deadline.date}:${job.releasedMilestoneIds.join(",")}:${job.pending?.approval_id ?? ""}:${job.activeException?.approval_id ?? ""}`
     : "empty";
 
   return (
@@ -702,7 +754,7 @@ export function ClauseJobWorkspace() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="start" className="w-72">
                         <DropdownMenuLabel className="text-xs text-stone-500">
-                          Contract jobs
+                          Contract &amp; policy cards
                         </DropdownMenuLabel>
                         <DropdownMenuSeparator />
                         {jobs.map((j) => (
@@ -722,10 +774,13 @@ export function ClauseJobWorkspace() {
                           >
                             <div className="min-w-0">
                               <div className="truncate font-medium">
-                                {formatJobTitle(j.client, j.project)}
+                                {formatWorkspaceJobTitle(j)}
                               </div>
                               <div className="truncate text-[11px] text-muted-foreground">
-                                {j.contractRef} · {stripLegalSuffix(j.contractor)}
+                                {j.contractRef} ·{" "}
+                                {stripLegalSuffix(
+                                  j.kind === "policy" ? j.client : j.contractor,
+                                )}
                               </div>
                             </div>
                             {j.id === activeJobId ? (
@@ -742,7 +797,12 @@ export function ClauseJobWorkspace() {
                   )}
 
                   <span className="hidden text-xs text-stone-500 md:inline">
-                    · {stripLegalSuffix(summary.contractor)}
+                    ·{" "}
+                    {stripLegalSuffix(
+                      summary.kind === "policy"
+                        ? summary.client
+                        : summary.contractor,
+                    )}
                   </span>
 
                   {statusPill ? (
@@ -910,7 +970,9 @@ export function ClauseJobWorkspace() {
                     <span className="flex size-4 items-center justify-center rounded-full bg-[#0F7B55]/15 text-[#0F7B55]">
                       <IconCheck className="size-3" strokeWidth={2.5} />
                     </span>
-                    Quote parsed
+                    {summary.kind === "policy"
+                      ? "Policy & trip parsed"
+                      : "Quote parsed"}
                   </span>
                   <span aria-hidden="true" className="text-stone-300">
                     /
@@ -969,6 +1031,8 @@ export function ClauseJobWorkspace() {
                   onSelectClause={handleSelectClause}
                   onToggleFreeze={() => void handleToggleFreeze()}
                   onAskClause={askClauseAboutDecline}
+                  onApproveException={() => void handleApproveException()}
+                  onRejectPending={() => void handleRejectPending()}
                 />
               </div>
             </div>
@@ -1016,6 +1080,7 @@ export function ClauseJobWorkspace() {
       <SandboxToolsDrawer
         open={sandboxOpen}
         onOpenChange={setSandboxOpen}
+        kind={summary?.kind ?? "contract"}
         canCharge={summary?.status === "active"}
         busy={Boolean(busyLabel)}
         currency={summary?.currency ?? "USD"}
@@ -1033,6 +1098,10 @@ export function ClauseJobWorkspace() {
           summary={summary ?? null}
           isFrozen={isCardFrozen}
           onClose={() => setPhoneVisible(false)}
+          exceptionNote={exceptionNote}
+          onExceptionNoteChange={setExceptionNote}
+          onRequestException={() => void handleRequestException()}
+          busy={Boolean(busyLabel)}
         />
       ) : null}
 
