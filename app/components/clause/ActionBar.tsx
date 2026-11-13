@@ -4,6 +4,7 @@ import {
   IconFileCheck,
   IconFileDiff,
   IconLoader2,
+  IconReceipt2,
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
@@ -70,6 +71,9 @@ interface ActionBarProps {
 
   // Shared reject
   onRejectPending: () => void;
+
+  // Policy expense report
+  onOpenExpenseReport?: () => void;
 }
 
 export function ActionBar({
@@ -95,6 +99,7 @@ export function ActionBar({
   onDraftChangeOrder,
   onApproveChangeOrder,
   onRejectPending,
+  onOpenExpenseReport,
 }: ActionBarProps) {
   const isPolicy = job.kind === "policy" || summary.kind === "policy";
   const isDraft = summary.status === "draft";
@@ -343,6 +348,20 @@ export function ActionBar({
                   {isPolicy
                     ? "Approve & issue trip card"
                     : "Approve & issue card"}
+                </Button>
+              ) : null}
+
+              {isPolicy && !isDraft && onOpenExpenseReport ? (
+                <Button
+                  id="expenseReport"
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={onOpenExpenseReport}
+                  className="h-9 border-[#DCD5C6] bg-white/90 px-3.5 text-xs font-medium text-stone-800 hover:bg-white focus-visible:ring-[#0F7B55]/45"
+                >
+                  <IconReceipt2 className="size-3.5 text-[#0F7B55]" />
+                  Expense report — auto-generated
                 </Button>
               ) : null}
 

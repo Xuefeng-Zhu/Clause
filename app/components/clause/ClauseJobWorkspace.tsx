@@ -47,6 +47,7 @@ import { ActivitySheet } from "./ActivitySheet";
 import { ConnectorOverlay } from "./ConnectorOverlay";
 import { ContractDocument } from "./ContractDocument";
 import { EnforcementPanel } from "./EnforcementPanel";
+import { ExpenseReportSheet } from "./ExpenseReportSheet";
 import { MilestoneBar } from "./MilestoneBar";
 import { EmptyJobState, NewJobDialog } from "./NewJobDialog";
 import { SandboxToolsDrawer } from "./SandboxToolsDrawer";
@@ -216,6 +217,7 @@ export function ClauseJobWorkspace() {
   const [activityOpen, setActivityOpen] = useState(false);
   const [proofSheetOpen, setProofSheetOpen] = useState(false);
   const [coSheetOpen, setCoSheetOpen] = useState(false);
+  const [expenseReportOpen, setExpenseReportOpen] = useState(false);
 
   const [hoveredClauseId, setHoveredClauseId] = useState<string | null>(null);
   const [pinnedClauseId, setPinnedClauseId] = useState<string | null>(null);
@@ -238,6 +240,7 @@ export function ClauseJobWorkspace() {
   useEffect(() => {
     setPinnedClauseId(null);
     setHoveredClauseId(null);
+    setExpenseReportOpen(false);
   }, [activeJobId]);
 
   // Immediate (<100ms) single-slot operation guard with overlap rejection & cancellation
@@ -658,6 +661,7 @@ export function ClauseJobWorkspace() {
         setSandboxOpen(false);
         setProofSheetOpen(false);
         setCoSheetOpen(false);
+        setExpenseReportOpen(false);
         setActivityOpen(false);
         setSearchParams(new URLSearchParams(), { replace: true });
         toast.success("Workspace cleared.");
@@ -1063,6 +1067,7 @@ export function ClauseJobWorkspace() {
             onDraftChangeOrder={() => void handleDraftChangeOrder()}
             onApproveChangeOrder={() => void handleApproveChangeOrder()}
             onRejectPending={() => void handleRejectPending()}
+            onOpenExpenseReport={() => setExpenseReportOpen(true)}
           />
         </>
       )}
@@ -1102,6 +1107,15 @@ export function ClauseJobWorkspace() {
           onExceptionNoteChange={setExceptionNote}
           onRequestException={() => void handleRequestException()}
           busy={Boolean(busyLabel)}
+        />
+      ) : null}
+
+      {job && summary && (job.kind === "policy" || summary.kind === "policy") ? (
+        <ExpenseReportSheet
+          open={expenseReportOpen}
+          onOpenChange={setExpenseReportOpen}
+          job={job}
+          summary={summary}
         />
       ) : null}
 
