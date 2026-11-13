@@ -57,7 +57,9 @@ export function CardMini({
 
       <div className="mt-2.5 flex items-baseline justify-between gap-2">
         <div className="text-sm font-medium tabular-nums text-stone-700">
-          {formatCurrency(summary.released, summary.currency)} limit
+          {summary.kind === "policy"
+            ? `${formatCurrency(summary.total, summary.currency)} budget · ${formatCurrency(summary.perChargeCap ?? 300, summary.currency)}/charge`
+            : `${formatCurrency(summary.released, summary.currency)} limit`}
         </div>
         <div className="text-xs tabular-nums text-stone-400">
           Exp {formatContractDate(summary.deadline)}

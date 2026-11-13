@@ -15,14 +15,18 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
-import type { ChargePresetKey } from "@/lib/clause-samples";
+import type {
+  ChargePresetKey,
+  ContractChargePresetKey,
+  PolicyChargePresetKey,
+} from "@/lib/clause-samples";
 import { cn } from "@/lib/utils";
 
 import { formatCurrency } from "./clause-format";
-import type { RuntimeInfo } from "./clause-types";
+import type { JobKind, RuntimeInfo } from "./clause-types";
 
-const SANDBOX_PRESETS: ReadonlyArray<{
-  key: ChargePresetKey;
+const CONTRACT_SANDBOX_PRESETS: ReadonlyArray<{
+  key: ContractChargePresetKey;
   merchant: string;
   mcc: string;
   category: string;
@@ -58,6 +62,57 @@ const SANDBOX_PRESETS: ReadonlyArray<{
   },
 ];
 
+const POLICY_SANDBOX_PRESETS: ReadonlyArray<{
+  key: PolicyChargePresetKey;
+  merchant: string;
+  mcc: string;
+  category: string;
+  amount: number;
+}> = [
+  {
+    key: "hotel",
+    merchant: "Hyatt Regency Austin",
+    mcc: "7011",
+    category: "Hotel & lodging",
+    amount: 289,
+  },
+  {
+    key: "uber",
+    merchant: "Uber Trip",
+    mcc: "4121",
+    category: "Rideshare & ground transport",
+    amount: 34.6,
+  },
+  {
+    key: "bar",
+    merchant: "Rainey St. Cocktail Bar",
+    mcc: "5813",
+    category: "Bars & alcohol-only venues",
+    amount: 142,
+  },
+  {
+    key: "bestbuy",
+    merchant: "Best Buy #512",
+    mcc: "5732",
+    category: "Electronics & retail",
+    amount: 899,
+  },
+  {
+    key: "dinner",
+    merchant: "Uchi Austin",
+    mcc: "5812",
+    category: "Restaurant · client dinner",
+    amount: 480,
+  },
+  {
+    key: "late",
+    merchant: "Uber Trip",
+    mcc: "4121",
+    category: "Rideshare · Nov 26, 2026",
+    amount: 41,
+  },
+];
+
 function formatEnvironmentLabel(runtime?: RuntimeInfo): string {
   if (!runtime) return "Sandbox";
   return runtime.airwallexMode === "sandbox"
@@ -84,6 +139,7 @@ function formatParserLabel(runtime?: RuntimeInfo): string {
 interface SandboxToolsDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  kind?: JobKind;
   canCharge: boolean;
   busy: boolean;
   currency?: string | undefined;
@@ -102,6 +158,7 @@ interface SandboxToolsDrawerProps {
 export function SandboxToolsDrawer({
   open,
   onOpenChange,
+  kind = "contract",
   canCharge,
   busy,
   currency = "USD",
@@ -112,6 +169,8 @@ export function SandboxToolsDrawer({
   phoneVisible,
   onPhoneVisibleChange,
 }: SandboxToolsDrawerProps) {
+  const isPolicy = kind === "policy";
+  const presets = isPolicy ? POLICY_SANDBOX_PRESETS : CONTRACT_SANDBOX_PRESETS;
   const [customOpen, setCustomOpen] = useState(false);
   const [merchantName, setMerchantName] = useState("Builders Supply Co.");
   const [mcc, setMcc] = useState("5211");
@@ -128,8 +187,9 @@ export function SandboxToolsDrawer({
             Test transactions
           </SheetTitle>
           <SheetDescription className="mt-1 text-xs text-stone-600">
-            Send test card authorizations against the active contract’s
-            live spending controls.
+            {isPolicy
+              ? "Send test card authorizations against the active trip card’s live policy controls."
+              : "Send test card authorizations against the active contract’s live spending controls."}
           </SheetDescription>
         </div>
 
@@ -146,9 +206,13 @@ export function SandboxToolsDrawer({
             className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-[#E6E0D4] bg-white/80 px-3.5 py-3"
           >
             <div>
-              <div className="text-xs font-semibold text-stone-900">Contractor phone view</div>
+              <div className="text-xs font-semibold text-stone-900">
+                {isPolicy ? "Employee phone view" : "Contractor phone view"}
+              </div>
               <div className="mt-0.5 text-[11px] text-stone-500">
-                Show what the contractor sees, live, beside the owner view.
+                {isPolicy
+                  ? "Show what Priya sees on her phone, live, beside the manager view."
+                  : "Show what the contractor sees, live, beside the owner view."}
               </div>
             </div>
             <Switch
@@ -163,7 +227,7 @@ export function SandboxToolsDrawer({
               Preset card charges
             </div>
             <div className="space-y-2">
-              {SANDBOX_PRESETS.map((preset) => (
+              {presets.map((preset) => (
                 <button
                   key={preset.key}
                   data-charge={preset.key}

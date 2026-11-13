@@ -12,11 +12,13 @@ import {
   formatRelativeTime,
   getClauseTheme,
   humanizeDeclineReason,
+  humanizePolicyDeclineReason,
 } from "./clause-format";
 import type { ClauseTransaction } from "./clause-types";
 
 interface TransactionFeedItemProps {
   txn: ClauseTransaction;
+  isPolicy?: boolean;
   clauseId?: string | undefined;
   mccLabel?: string | undefined;
   isHighlighted: boolean;
@@ -28,6 +30,7 @@ interface TransactionFeedItemProps {
 
 export function TransactionFeedItem({
   txn,
+  isPolicy = false,
   clauseId,
   mccLabel,
   isHighlighted,
@@ -38,10 +41,14 @@ export function TransactionFeedItem({
 }: TransactionFeedItemProps) {
   const isDeclined = Boolean(txn.failure_reason || txn.explanation);
   const humanReason = isDeclined
-    ? txn.explanation?.prohibited
-      ? `Prohibited spend${mccLabel ? ` (${mccLabel.toLowerCase()})` : ""}`
-      : humanizeDeclineReason(txn.failure_reason ?? txn.explanation?.failure_reason)
-    : "Building-supply merchant";
+    ? isPolicy
+      ? humanizePolicyDeclineReason(txn)
+      : txn.explanation?.prohibited
+        ? `Prohibited spend${mccLabel ? ` (${mccLabel.toLowerCase()})` : ""}`
+        : humanizeDeclineReason(txn.failure_reason ?? txn.explanation?.failure_reason)
+    : isPolicy
+      ? `${mccLabel ?? "In-policy travel"} · receipt matched`
+      : "Building-supply merchant";
 
   const theme = getClauseTheme(clauseId);
   const displayClause = clauseId
