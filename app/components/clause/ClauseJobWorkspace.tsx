@@ -198,7 +198,7 @@ export function ClauseJobWorkspace() {
   const resetDemoMut = useActionMutation("reset-demo");
 
   // UI sheets / dialogs / clause highlight state
-  const [quoteText, setQuoteText] = useState(SAMPLE_QUOTE_TEXT);
+  const [quoteText, setQuoteText] = useState("");
   const [coEmailText, setCoEmailText] = useState(SAMPLE_CHANGE_ORDER_EMAIL_TEXT);
   const [proofKind, setProofKind] = useState<DeclaredProofKind>("photos");
   const [stagedProofFiles, setStagedProofFiles] = useState<
@@ -333,6 +333,9 @@ export function ClauseJobWorkspace() {
         toast.success(
           `Extracted ${res.terms.milestones.length} milestones from ${res.summary.contractRef}.`,
         );
+        if (!trimmed) {
+          setQuoteText(SAMPLE_QUOTE_TEXT);
+        }
       },
     );
   }
@@ -590,7 +593,7 @@ export function ClauseJobWorkspace() {
       () => resetDemoMut.mutateAsync({}),
       () => {
         setStagedProofFiles([]);
-        setQuoteText(SAMPLE_QUOTE_TEXT);
+        setQuoteText("");
         setCoEmailText(SAMPLE_CHANGE_ORDER_EMAIL_TEXT);
         setSandboxOpen(false);
         setProofSheetOpen(false);
@@ -888,7 +891,35 @@ export function ClauseJobWorkspace() {
         />
       ) : (
         <>
-          <div className="mx-auto w-full max-w-[1360px] flex-1 px-4 py-6 sm:px-7 sm:py-8">
+          <div
+            data-draft-review={summary.status === "draft" ? "true" : undefined}
+            className="mx-auto w-full max-w-[1360px] flex-1 px-4 py-6 sm:px-7 sm:py-8"
+          >
+            {summary.status === "draft" ? (
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#DFD8C8] bg-white/75 px-4 py-2.5 text-xs text-stone-600">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <span className="inline-flex items-center gap-1.5 font-medium text-[#0F7B55]">
+                    <span className="flex size-4 items-center justify-center rounded-full bg-[#0F7B55]/15 text-[#0F7B55]">
+                      <IconCheck className="size-3" strokeWidth={2.5} />
+                    </span>
+                    Quote parsed
+                  </span>
+                  <span aria-hidden="true" className="text-stone-300">
+                    /
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 font-semibold text-stone-900">
+                    <span className="flex size-4 items-center justify-center rounded-full bg-stone-900 text-[10px] text-white">
+                      2
+                    </span>
+                    Review highlighted clauses &amp; derived controls
+                  </span>
+                </div>
+                <span className="text-[11px] text-stone-500">
+                  Hover or select any § tag to verify the card rule it governs
+                </span>
+              </div>
+            ) : null}
+
             <div
               ref={workspaceGridRef}
               className="relative grid grid-cols-1 items-start gap-8 lg:grid-cols-12 lg:gap-11"

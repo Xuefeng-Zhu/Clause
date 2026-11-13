@@ -1,5 +1,5 @@
 export const SAMPLE_QUOTE_TEXT = `NORTHSIDE BUILDERS LLC
-1180 Industry Way, Redmond, WA 98052 · WA Lic. NORTHBL123AB (synthetic)
+1180 Industry Way, Redmond, WA 98052 · WA Lic. NORTHBL123AB
 
 QUOTE & SERVICE AGREEMENT  No. Q-2026-0412
 Date: October 30, 2026
