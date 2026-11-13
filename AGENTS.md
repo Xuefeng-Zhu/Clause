@@ -35,6 +35,9 @@ Both the UI (`useActionQuery` / `useActionMutation` in `app/components/clause/Cl
 | `approve-change-order` | `POST` | `{ jobId, approvalId }` | Owner approval: apply change order to terms and re-derive Airwallex card limit and `active_to` |
 | `request-exception` | `POST` | `{ jobId, note?, useSample?, requestedCap? }` | Evaluate employee §3.4 entertainment note, clamp cap to `$125 × attendees`, and stage `policy_exception` pending approval |
 | `approve-exception` | `POST` | `{ jobId, approvalId }` | Manager approval: raise `PER_TRANSACTION` limit for one charge (or 2h), automatically restoring base cap after next approved swipe |
+| `metal-overpay-attempt` | `POST` | `{ jobId }` | Sandbox simulation: attempt an early Metal milestone payout at 2× cap -> refused `mandate_cap_exceeded` citing contract clause |
+| `metal-wrong-payee` | `POST` | `{ jobId }` | Sandbox simulation: attempt a Metal payout to an unlisted address -> refused `mandate_payee_not_listed` citing contract clause |
+| `metal-verify` | `POST` | `{ jobId }` | Verify the job's Metal mandate on chain and report payment/refusal counts |
 | `reject-pending` | `POST` | `{ jobId, reason? }` | Reject the current pending milestone release, change order, or policy exception without modifying card controls |
 | `freeze-card` | `POST` | `{ jobId, frozen }` | Toggle Airwallex card between `INACTIVE` (frozen) and `ACTIVE` |
 | `close-job` | `POST` | `{ jobId }` | Permanently close the Airwallex virtual card (`CLOSED`) and mark job `closed` |
@@ -45,7 +48,7 @@ Both the UI (`useActionQuery` / `useActionMutation` in `app/components/clause/Cl
 ## Application state & UI selectors
 
 - `navigation` tracks `{ view, path, publicPath, jobId?, threadId? }` via `app/hooks/use-navigation-state.ts`; selected job is synced to `/home?job=<jobId>`.
-- Stable DOM hooks on `/home` (`app/components/clause/ClauseJobWorkspace.tsx`): `#parse`, `#approveTerms`, `[data-charge]`, `#proofFiles`, `#proofKind`, `#submitProof`, `#draftCo`, `#approveRelease`, `#approveCo`, `#requestException`, `#approveException`, `#expenseReport`, `#exportReport`, `#resetDemo`.
+- Stable DOM hooks on `/home` (`app/components/clause/ClauseJobWorkspace.tsx`): `#parse`, `#approveTerms`, `[data-charge]`, `#proofFiles`, `#proofKind`, `#submitProof`, `#draftCo`, `#approveRelease`, `#approveCo`, `#requestException`, `#approveException`, `#expenseReport`, `#exportReport`, `#metalPanel`, `#metalSpent`, `#metalEvents`, `#metalOverpay`, `#metalWrongPayee`, `#metalVerify`, `#resetDemo`.
 
 ## Verification
 

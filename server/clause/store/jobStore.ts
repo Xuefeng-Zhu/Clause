@@ -1,8 +1,9 @@
-import type { IssuingTransaction } from "../airwallex/types.js";
+import type { IssuingTransaction, SimulatedDeposit } from "../airwallex/types.js";
 import type { ChangeOrderProposal } from "../contract/changeOrder.js";
 import type { ContractTerms } from "../contract/schema.js";
 import type { ActivePolicyException, ExceptionProposal } from "../expense/exception.js";
 import type { PolicyTerms } from "../expense/schema.js";
+import type { JobMandateState } from "../metal/types.js";
 import type { EvidenceVerdict } from "../milestones/evidence.js";
 import type { CardRule } from "../policy/cardRules.js";
 import type { DeclineExplanation } from "../policy/declineExplainer.js";
@@ -41,7 +42,13 @@ export interface JobEvent {
     | "exception_approved"
     | "exception_used"
     | "card_frozen"
-    | "card_closed";
+    | "card_closed"
+    | "mandate_issued"
+    | "metal_payout"
+    | "metal_refused"
+    | "mandate_replaced"
+    | "mandate_verified"
+    | "treasury_deposit";
   detail: string;
   data?: unknown;
 }
@@ -59,6 +66,8 @@ export interface Job {
   card_id?: string;
   releasedMilestoneIds: string[];
   rules: CardRule[];
+  mandate?: JobMandateState;
+  deposits?: SimulatedDeposit[];
   pending?: PendingApproval;
   transactions: (IssuingTransaction & { explanation?: DeclineExplanation })[];
   events: JobEvent[];

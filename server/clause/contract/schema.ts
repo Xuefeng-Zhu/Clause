@@ -26,6 +26,20 @@ export type ClauseRef = z.infer<typeof ClauseRef>;
 export const EvidenceKind = z.enum(["photos", "inspection_report", "invoice", "walkthrough_signoff"]);
 export type EvidenceKind = z.infer<typeof EvidenceKind>;
 
+export const MilestonePayout = z.object({
+  outcome: z.enum(["paid", "refused", "pending"]),
+  amount: z.number(),
+  amount_usd: z.number(),
+  to: z.string(),
+  payment_id: z.string(),
+  tx_hash: z.string().optional(),
+  explorer_url: z.string().nullable().optional(),
+  reason: z.string().optional(),
+  deposit_id: z.string().optional(),
+  at: z.string(),
+});
+export type MilestonePayout = z.infer<typeof MilestonePayout>;
+
 export const Milestone = z.object({
   id: z.string(), // "M1"
   name: z.string(),
@@ -34,6 +48,7 @@ export const Milestone = z.object({
   evidence_required: z.array(EvidenceKind),
   released_on_signing: z.boolean(),
   clause: ClauseRef,
+  payout: MilestonePayout.optional(),
 });
 export type Milestone = z.infer<typeof Milestone>;
 

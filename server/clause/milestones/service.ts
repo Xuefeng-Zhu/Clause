@@ -1,11 +1,24 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { IssuingGateway } from "../airwallex/types.js";
+import { config } from "../config.js";
 import { applyChangeOrder, draftChangeOrder } from "../contract/changeOrder.js";
 import { parseContract, type ContractSource } from "../contract/parser.js";
 import { validateTerms } from "../contract/schema.js";
 import { computeValidatedExceptionCap, draftPolicyException } from "../expense/exception.js";
 import { looksLikePolicyDocument, parsePolicy } from "../expense/parser.js";
 import { synthesizeContractTermsFromPolicy, validatePolicyTerms } from "../expense/schema.js";
+import { MockMetalRail } from "../metal/mock.js";
+import {
+  MOCK_WRONG_PAYEE_ADDRESS,
+  type JobMandateEvent,
+  type MetalRail,
+  contractToMandateTerms,
+  explainMandateRefusal,
+  round2,
+  shortenAddress,
+  usdToUsdz,
+  usdzToUsd,
+} from "../metal/types.js";
 import { buildCardPlan, buildPolicyCardPlan, nextMilestone } from "../policy/cardRules.js";
 import { explainDecline, explainPolicyDecline } from "../policy/declineExplainer.js";
 import type { Job, JobEvent, JobStore } from "../store/jobStore.js";
@@ -16,9 +29,9 @@ import { evaluateEvidence, type EvidenceFile } from "./evidence.js";
  * order, or §3.4 policy exception). Every money-moving step is code, and every limit increase
  * needs an owner/manager approval bound to what they saw.
  *
- *   draft --approveTerms--> active (card issued at M1 limit or trip budget/per-charge cap)
- *   active --submitProof--> pending release --approveRelease--> limit raised to next milestone
- *   active --proposeChangeOrder--> pending change --approveChangeOrder--> card re-derived
+ *   draft --approveTerms--> active (card issued at M1 limit + on-chain Metal mandate bound)
+ *   active --submitProof--> pending release --approveRelease--> limit raised + Metal milestone payout
+ *   active --proposeChangeOrder--> pending change --approveChangeOrder--> card & mandate re-derived
  *   active --requestException--> pending exception --approveException--> one-time cap raised, auto-restored
  *   active --closeJob--> closed (card CLOSED)
  */
@@ -27,6 +40,7 @@ export class ContractCardService {
     private readonly gateway: IssuingGateway,
     private readonly store: JobStore,
     private readonly contractorEmail: string,
+    private readonly metal: MetalRail = new MockMetalRail(),
   ) {}
 
   async getJob(id: string): Promise<Job> {
@@ -122,6 +136,38 @@ export class ContractCardService {
     Object.assign(job, { status: "active", cardholder_id: holder.cardholder_id, card_id: card.card_id, releasedMilestoneIds: signing, rules: plan.rules });
     log(job, "terms_approved", "Owner approved extracted terms");
     log(job, "card_issued", `Card ${card.card_id} issued, limit ${job.terms.currency} ${plan.releasedAmount}`, plan.controls);
+
+    const mandateTerms = contractToMandateTerms(job);
+    const issued = await this.metal.issueMandate(job, mandateTerms);
+    const nowIso = new Date().toISOString();
+    const issueEvent: JobMandateEvent = {
+      id: `mev_${randomUUID().slice(0, 8)}`,
+      at: nowIso,
+      kind: "issued",
+      clause: mandateTerms.clauses.budget,
+      ...(issued.txHash ? { txHash: issued.txHash } : {}),
+      explorerUrl: issued.explorerUrl,
+      detail: `Bound Metal mandate (${this.metal.mode}) · cap ${mandateTerms.cap.toFixed(2)} USDZ (${mandateTerms.clauses.cap.clause_id}), budget ${mandateTerms.budget.toFixed(2)} USDZ, max ${mandateTerms.maxOccurrences} payouts`,
+    };
+    job.mandate = {
+      mode: this.metal.mode,
+      mandateId: issued.mandateId,
+      version: issued.version,
+      ...(issued.credentialFile ? { credentialFile: issued.credentialFile } : {}),
+      ...(issued.txHash ? { txHash: issued.txHash } : {}),
+      explorerUrl: issued.explorerUrl,
+      terms: issued.terms,
+      spent: issued.spent,
+      budget: issued.budget,
+      occurrencesUsed: issued.occurrencesUsed,
+      events: [issueEvent],
+    };
+    log(
+      job,
+      "mandate_issued",
+      `Metal mandate ${issued.mandateId.slice(0, 10)}… bound (${this.metal.mode}): cap ${mandateTerms.cap.toFixed(2)} USDZ (${mandateTerms.clauses.cap.clause_id}), budget ${mandateTerms.budget.toFixed(2)} USDZ`,
+      issued,
+    );
     return await this.store.save(job);
   }
 
@@ -319,12 +365,143 @@ export class ContractCardService {
       throw new Error("Approval does not match the pending release (stale or tampered). Re-review.");
     }
     if (p.verdict?.verdict === "insufficient") throw new Error("Evidence was judged insufficient. Request new proof, or reject.");
-    const released = [...job.releasedMilestoneIds, p.milestone_id!];
+    const releasedId = p.milestone_id!;
+    const released = [...job.releasedMilestoneIds, releasedId];
     const plan = buildCardPlan(job.terms, released);
     await this.gateway.updateCard(job.card_id!, { authorization_controls: plan.controls });
     Object.assign(job, { releasedMilestoneIds: released, rules: plan.rules });
     delete job.pending;
-    log(job, "release_approved", `Released ${p.milestone_id}. Card limit now ${job.terms.currency} ${plan.releasedAmount}`, plan.controls);
+    log(job, "release_approved", `Released ${releasedId}. Card limit now ${job.terms.currency} ${plan.releasedAmount}`, plan.controls);
+
+    // Execute contractor milestone payout on Metal mandate rail + treasury mirror
+    const milestone = job.terms.milestones.find((m) => m.id === releasedId);
+    if (milestone && job.kind !== "policy") {
+      if (!job.mandate) {
+        const terms = contractToMandateTerms(job);
+        const issued = await this.metal.issueMandate(job, terms);
+        job.mandate = {
+          mode: this.metal.mode,
+          mandateId: issued.mandateId,
+          version: issued.version,
+          ...(issued.credentialFile ? { credentialFile: issued.credentialFile } : {}),
+          ...(issued.txHash ? { txHash: issued.txHash } : {}),
+          explorerUrl: issued.explorerUrl,
+          terms: issued.terms,
+          spent: issued.spent,
+          budget: issued.budget,
+          occurrencesUsed: issued.occurrencesUsed,
+          events: [],
+        };
+      }
+
+      const amountUsdz = usdToUsdz(milestone.amount);
+      const paymentId = `${job.id}-${milestone.id}`;
+      const payee = job.mandate.terms.payee;
+      const payoutRes = await this.metal.payout(job, {
+        milestoneId: milestone.id,
+        amount: amountUsdz,
+        to: payee,
+        paymentId,
+      });
+      const nowIso = new Date().toISOString();
+
+      let depositId: string | undefined;
+      if (payoutRes.outcome === "paid") {
+        job.mandate.spent = payoutRes.spent ?? round2(job.mandate.spent + amountUsdz);
+        job.mandate.occurrencesUsed =
+          payoutRes.occurrencesUsed ?? job.mandate.occurrencesUsed + 1;
+        if (payoutRes.budget !== undefined) {
+          job.mandate.budget = payoutRes.budget;
+        }
+
+        const mirrorUsd = usdzToUsd(amountUsdz);
+        const ref = payoutRes.txHash ?? paymentId;
+        try {
+          const dep = await this.gateway.simulateDeposit({
+            amount: mirrorUsd,
+            reference: ref,
+            currency: job.terms.currency,
+          });
+          depositId = dep.deposit_id;
+          job.deposits = [...(job.deposits ?? []), dep];
+          log(
+            job,
+            "treasury_deposit",
+            `Treasury mirror: ${job.terms.currency} ${mirrorUsd.toLocaleString("en-US", { minimumFractionDigits: 2 })} deposit (${dep.payer_name})`,
+            dep,
+          );
+        } catch (err) {
+          console.warn("[Clause] Airwallex deposit simulation failed (continuing):", err);
+        }
+
+        const txDisplay = payoutRes.txHash ?? "pending";
+        log(
+          job,
+          "metal_payout",
+          `Paid ${amountUsdz.toFixed(2)} USDZ on Metal · tx ${txDisplay}`,
+          payoutRes,
+        );
+        job.mandate.events.push({
+          id: `mev_${randomUUID().slice(0, 8)}`,
+          at: nowIso,
+          kind: "payout",
+          outcome: "paid",
+          milestoneId: milestone.id,
+          amount: amountUsdz,
+          amountUsd: milestone.amount,
+          to: payee,
+          clause: milestone.clause,
+          ...(payoutRes.txHash ? { txHash: payoutRes.txHash } : {}),
+          explorerUrl: payoutRes.explorerUrl ?? null,
+          ...(depositId ? { depositId } : {}),
+          detail: `Paid ${amountUsdz.toFixed(2)} USDZ ($${milestone.amount.toLocaleString("en-US")}) for ${milestone.id} · tx ${txDisplay.slice(0, 10)}…`,
+        });
+      } else if (payoutRes.outcome === "refused") {
+        const cited = explainMandateRefusal(payoutRes.reason, job.mandate.terms, job.terms);
+        log(
+          job,
+          "metal_refused",
+          `Refused ${amountUsdz.toFixed(2)} USDZ payout for ${milestone.id} on Metal: ${payoutRes.reason} (${cited.clause.clause_id})`,
+          { ...payoutRes, clause: cited.clause },
+        );
+        job.mandate.events.push({
+          id: `mev_${randomUUID().slice(0, 8)}`,
+          at: nowIso,
+          kind: "refused",
+          outcome: "refused",
+          milestoneId: milestone.id,
+          amount: amountUsdz,
+          amountUsd: milestone.amount,
+          to: payee,
+          ...(payoutRes.reason ? { reason: payoutRes.reason } : {}),
+          clause: cited.clause,
+          ...(payoutRes.txHash ? { txHash: payoutRes.txHash } : {}),
+          explorerUrl: payoutRes.explorerUrl ?? null,
+          detail: `Refused ${amountUsdz.toFixed(2)} USDZ for ${milestone.id}: ${payoutRes.reason} (${cited.clause.clause_id})`,
+        });
+      } else {
+        log(
+          job,
+          "metal_payout",
+          `Pending ${amountUsdz.toFixed(2)} USDZ payout for ${milestone.id} on Metal`,
+          payoutRes,
+        );
+      }
+
+      milestone.payout = {
+        outcome: payoutRes.outcome,
+        amount: amountUsdz,
+        amount_usd: milestone.amount,
+        to: payee,
+        payment_id: paymentId,
+        ...(payoutRes.txHash ? { tx_hash: payoutRes.txHash } : {}),
+        explorer_url: payoutRes.explorerUrl ?? null,
+        ...(payoutRes.reason ? { reason: payoutRes.reason } : {}),
+        ...(depositId ? { deposit_id: depositId } : {}),
+        at: nowIso,
+      };
+    }
+
     return await this.store.save(job);
   }
 
@@ -354,7 +531,182 @@ export class ContractCardService {
     Object.assign(job, { terms, rules: plan.rules });
     delete job.pending;
     log(job, "change_order_approved", `Change order applied. Deadline ${terms.deadline.date}, total ${terms.currency} ${terms.total_amount}`, plan.controls);
+
+    if (job.mandate && job.kind !== "policy") {
+      const nextMandateTerms = contractToMandateTerms(
+        { id: job.id, terms },
+        { payee: job.mandate.terms.payee },
+      );
+      if (
+        nextMandateTerms.cap > job.mandate.terms.cap ||
+        nextMandateTerms.budget > job.mandate.terms.budget
+      ) {
+        const replaced = await this.metal.replaceMandate(job, nextMandateTerms);
+        const coClause =
+          terms.change_order_clause ?? nextMandateTerms.clauses.budget;
+        const replaceEvent: JobMandateEvent = {
+          id: `mev_${randomUUID().slice(0, 8)}`,
+          at: new Date().toISOString(),
+          kind: "replaced",
+          clause: coClause,
+          ...(replaced.txHash ? { txHash: replaced.txHash } : {}),
+          explorerUrl: replaced.explorerUrl,
+          detail: `Replaced mandate (v${replaced.version}): cap ${nextMandateTerms.cap.toFixed(2)} USDZ, budget ${nextMandateTerms.budget.toFixed(2)} USDZ · ${replaced.spent.toFixed(2)} USDZ spent carried over`,
+        };
+        job.mandate = {
+          ...job.mandate,
+          mandateId: replaced.mandateId,
+          version: replaced.version,
+          ...(replaced.credentialFile ? { credentialFile: replaced.credentialFile } : {}),
+          ...(replaced.txHash ? { txHash: replaced.txHash } : {}),
+          explorerUrl: replaced.explorerUrl,
+          terms: replaced.terms,
+          spent: replaced.spent,
+          budget: replaced.budget,
+          occurrencesUsed: replaced.occurrencesUsed,
+          events: [...job.mandate.events, replaceEvent],
+        };
+        log(
+          job,
+          "mandate_replaced",
+          `Replaced Metal mandate (v${replaced.version}): cap ${nextMandateTerms.cap.toFixed(2)} USDZ, budget ${nextMandateTerms.budget.toFixed(2)} USDZ (${replaced.spent.toFixed(2)} USDZ spent carried over)`,
+          replaced,
+        );
+      }
+    }
+
     return await this.store.save(job);
+  }
+
+  /** Sandbox attack simulation: agent attempts early milestone payout at 2× the mandate cap. */
+  async metalOverpayAttempt(jobId: string) {
+    const job = await this.activeContractJobWithMandate(jobId);
+    const mandate = job.mandate!;
+    const target =
+      nextMilestone(job.terms, job.releasedMilestoneIds) ??
+      job.terms.milestones[job.terms.milestones.length - 1]!;
+    const amountUsdz = round2(mandate.terms.cap * 2);
+    const amountUsd = usdzToUsd(amountUsdz);
+    const paymentId = `${job.id}-${target.id}-overpay-${mandate.events.length + 1}`;
+
+    const res = await this.metal.payout(job, {
+      milestoneId: target.id,
+      amount: amountUsdz,
+      to: mandate.terms.payee,
+      paymentId,
+    });
+    const cited = explainMandateRefusal(res.reason, mandate.terms, job.terms);
+    const nowIso = new Date().toISOString();
+
+    const event: JobMandateEvent = {
+      id: `mev_${randomUUID().slice(0, 8)}`,
+      at: nowIso,
+      kind: "refused",
+      outcome: res.outcome,
+      milestoneId: target.id,
+      amount: amountUsdz,
+      amountUsd,
+      to: mandate.terms.payee,
+      ...(res.reason ? { reason: res.reason } : {}),
+      clause: cited.clause,
+      ...(res.txHash ? { txHash: res.txHash } : {}),
+      explorerUrl: res.explorerUrl ?? null,
+      detail: `Refused ${amountUsdz.toFixed(2)} USDZ ($${amountUsd.toLocaleString("en-US")}) early ${target.id} payout: ${res.reason ?? "refused"} — cites ${cited.clause.clause_id}`,
+    };
+    mandate.events.push(event);
+    log(
+      job,
+      "metal_refused",
+      `Refused early ${target.id} payout of ${amountUsdz.toFixed(2)} USDZ ($${amountUsd.toLocaleString("en-US")}) on Metal: ${res.reason} — ${cited.headline}`,
+      { ...res, clause: cited.clause },
+    );
+    await this.store.save(job);
+    return { job, result: res, clause: cited.clause, headline: cited.headline, event };
+  }
+
+  /** Sandbox attack simulation: agent attempts payout to an unauthorized payee address. */
+  async metalWrongPayeeAttempt(jobId: string) {
+    const job = await this.activeContractJobWithMandate(jobId);
+    const mandate = job.mandate!;
+    const target =
+      nextMilestone(job.terms, job.releasedMilestoneIds) ??
+      job.terms.milestones[0]!;
+    const wrongTo =
+      this.metal.mode === "testnet" &&
+      config.metal.account &&
+      config.metal.account.toLowerCase() !== mandate.terms.payee.toLowerCase()
+        ? config.metal.account
+        : MOCK_WRONG_PAYEE_ADDRESS;
+    const amountUsdz = Math.min(usdToUsdz(target.amount), mandate.terms.cap);
+    const amountUsd = usdzToUsd(amountUsdz);
+    const paymentId = `${job.id}-${target.id}-wrong-payee-${mandate.events.length + 1}`;
+
+    const res = await this.metal.payout(job, {
+      milestoneId: target.id,
+      amount: amountUsdz,
+      to: wrongTo,
+      paymentId,
+    });
+    const cited = explainMandateRefusal(res.reason, mandate.terms, job.terms);
+    const nowIso = new Date().toISOString();
+
+    const event: JobMandateEvent = {
+      id: `mev_${randomUUID().slice(0, 8)}`,
+      at: nowIso,
+      kind: "refused",
+      outcome: res.outcome,
+      milestoneId: target.id,
+      amount: amountUsdz,
+      amountUsd,
+      to: wrongTo,
+      ...(res.reason ? { reason: res.reason } : {}),
+      clause: cited.clause,
+      ...(res.txHash ? { txHash: res.txHash } : {}),
+      explorerUrl: res.explorerUrl ?? null,
+      detail: `Refused ${amountUsdz.toFixed(2)} USDZ ($${amountUsd.toLocaleString("en-US")}) to ${shortenAddress(wrongTo)}: ${res.reason ?? "refused"} — cites ${cited.clause.clause_id}`,
+    };
+    mandate.events.push(event);
+    log(
+      job,
+      "metal_refused",
+      `Refused ${amountUsdz.toFixed(2)} USDZ ($${amountUsd.toLocaleString("en-US")}) payout to ${shortenAddress(wrongTo)} on Metal: ${res.reason} — ${cited.headline}`,
+      { ...res, clause: cited.clause, attemptedPayee: wrongTo },
+    );
+    await this.store.save(job);
+    return {
+      job,
+      result: res,
+      clause: cited.clause,
+      headline: cited.headline,
+      attemptedPayee: wrongTo,
+      event,
+    };
+  }
+
+  /** Verify the active Metal mandate and all recorded payouts/refusals from the chain. */
+  async metalVerify(jobId: string) {
+    const job = await this.store.get(jobId);
+    if (!job.mandate) {
+      throw new Error(`Job ${jobId} has no Metal mandate yet; approve terms first.`);
+    }
+    const verification = await this.metal.verify(job);
+    const nowIso = new Date().toISOString();
+    job.mandate.verified = {
+      ok: verification.verified,
+      at: nowIso,
+      payments: verification.payments,
+      refusals: verification.refusals,
+      summary: verification.summary,
+    };
+    job.mandate.events.push({
+      id: `mev_${randomUUID().slice(0, 8)}`,
+      at: nowIso,
+      kind: "verified",
+      detail: verification.summary,
+    });
+    log(job, "mandate_verified", verification.summary, verification);
+    await this.store.save(job);
+    return { job, verification };
   }
 
   async freeze(jobId: string, frozen: boolean): Promise<Job> {
@@ -381,6 +733,31 @@ export class ContractCardService {
   private async activeJob(id: string): Promise<Job> {
     const job = await this.store.get(id);
     if (job.status !== "active" || !job.card_id) throw new Error(`Job ${id} is ${job.status}; issue the card first.`);
+    return job;
+  }
+
+  private async activeContractJobWithMandate(id: string): Promise<Job> {
+    const job = await this.activeJob(id);
+    if (job.kind === "policy") {
+      throw new Error("Metal contractor mandates apply to contract jobs only.");
+    }
+    if (!job.mandate) {
+      const terms = contractToMandateTerms(job);
+      const issued = await this.metal.issueMandate(job, terms);
+      job.mandate = {
+        mode: this.metal.mode,
+        mandateId: issued.mandateId,
+        version: issued.version,
+        ...(issued.credentialFile ? { credentialFile: issued.credentialFile } : {}),
+        ...(issued.txHash ? { txHash: issued.txHash } : {}),
+        explorerUrl: issued.explorerUrl,
+        terms: issued.terms,
+        spent: issued.spent,
+        budget: issued.budget,
+        occurrencesUsed: issued.occurrencesUsed,
+        events: [],
+      };
+    }
     return job;
   }
 }

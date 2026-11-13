@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { MockIssuingGateway } from "../server/clause/airwallex/mock.js";
+import { config } from "../server/clause/config.js";
 import { ContractTerms } from "../server/clause/contract/schema.js";
 import {
   MOCK_CONTRACTOR_ADDRESS,
@@ -12,6 +13,17 @@ import {
   explainMandateRefusal,
   parseMetalCliOutput,
 } from "../server/clause/metal/index.js";
+import { ContractCardService } from "../server/clause/milestones/service.js";
+import { MemoryJobStore } from "../server/clause/store/jobStore.js";
+
+const sampleQuote = readFileSync(
+  new URL("../samples/quote-maple-street-cafe.txt", import.meta.url),
+  "utf8",
+);
+const sampleChangeOrderEmail = readFileSync(
+  new URL("../samples/change-order-email.txt", import.meta.url),
+  "utf8",
+);
 
 const sampleTerms = ContractTerms.parse(
   JSON.parse(
@@ -262,5 +274,87 @@ describe("Airwallex simulateDeposit treasury mirror", () => {
     expect(dep.payer_name).toBe("Metal payout 0x5bc5cfed");
     expect(gw.deposits).toHaveLength(1);
     expect(gw.walletBalance).toBe(15_000);
+  });
+});
+
+describe("ContractCardService + Metal mandate lifecycle", () => {
+  it("issues mandate on approveTerms, pays on approveRelease (+ mirrors deposit), refuses overpay & wrong-payee citing clauses, replaces on change order, and verifies", async () => {
+    config.anthropic.apiKey = undefined;
+    const gw = new MockIssuingGateway();
+    const store = new MemoryJobStore();
+    const metal = new MockMetalRail();
+    const svc = new ContractCardService(gw, store, "contractor@example.com", metal);
+
+    // 1. Create & approve terms -> binds Metal mandate (cap = 50 USDZ, budget = 120 USDZ, maxOccurrences = 3)
+    let job = await svc.createJob({ kind: "text", text: sampleQuote });
+    job = await svc.approveTerms(job.id);
+    expect(job.mandate).toBeDefined();
+    expect(job.mandate?.terms.cap).toBe(50);
+    expect(job.mandate?.terms.budget).toBe(120);
+    expect(job.mandate?.terms.maxOccurrences).toBe(3);
+    expect(job.mandate?.spent).toBe(0);
+
+    // 2. Overpay attempt (2× cap = 100 USDZ) -> refused mandate_cap_exceeded citing §1.2
+    const overpay = await svc.metalOverpayAttempt(job.id);
+    expect(overpay.result.outcome).toBe("refused");
+    expect(overpay.result.reason).toBe("mandate_cap_exceeded");
+    expect(overpay.clause.clause_id).toBe("§1.2");
+    expect(
+      overpay.job.events.some(
+        (e) => e.type === "metal_refused" && e.detail.includes("mandate_cap_exceeded") && e.detail.includes("§1.2"),
+      ),
+    ).toBe(true);
+
+    // 3. Wrong-payee attempt -> refused mandate_payee_not_listed citing §1.1
+    const wrongPayee = await svc.metalWrongPayeeAttempt(job.id);
+    expect(wrongPayee.result.outcome).toBe("refused");
+    expect(wrongPayee.result.reason).toBe("mandate_payee_not_listed");
+    expect(wrongPayee.clause.clause_id).toBe("§1.1");
+    expect(
+      wrongPayee.job.events.some(
+        (e) => e.type === "metal_refused" && e.detail.includes("mandate_payee_not_listed") && e.detail.includes("§1.1"),
+      ),
+    ).toBe(true);
+
+    // 4. Submit proof & approveRelease for M2 ($5,000) -> pays 50.00 USDZ on Metal + mirrors $5,000 deposit on Airwallex
+    job = await svc.submitProof(job.id, [
+      { filename: "cabinets.jpg", mediaType: "image/jpeg", base64: "AA==", declaredKind: "photos" },
+    ]);
+    job = await svc.approveRelease(job.id, {
+      approval_id: job.pending!.approval_id,
+      milestone_id: "M2",
+      amount: 5000,
+    });
+    const m2 = job.terms.milestones.find((m) => m.id === "M2")!;
+    expect(m2.payout?.outcome).toBe("paid");
+    expect(m2.payout?.amount).toBe(50);
+    expect(m2.payout?.amount_usd).toBe(5000);
+    expect(m2.payout?.tx_hash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(job.mandate?.spent).toBe(50);
+    expect(job.mandate?.occurrencesUsed).toBe(1);
+    expect(
+      job.events.some(
+        (e) => e.type === "metal_payout" && e.detail.startsWith("Paid 50.00 USDZ on Metal · tx 0x"),
+      ),
+    ).toBe(true);
+    expect(gw.deposits).toHaveLength(1);
+    expect(gw.deposits[0]?.amount).toBe(5000);
+    expect(gw.deposits[0]?.payer_name).toMatch(/^Metal payout 0x/);
+
+    // 5. Approve change order (+$800 on M2 -> $5,800, total -> $12,800) -> replaces mandate with cap=58, budget=128, carrying 50 USDZ spent over
+    job = await svc.proposeChangeOrder(job.id, sampleChangeOrderEmail);
+    job = await svc.approveChangeOrder(job.id, job.pending!.approval_id);
+    expect(job.mandate?.version).toBe(2);
+    expect(job.mandate?.terms.cap).toBe(58);
+    expect(job.mandate?.budget).toBe(128);
+    expect(job.mandate?.spent).toBe(50);
+    expect(job.events.some((e) => e.type === "mandate_replaced")).toBe(true);
+
+    // 6. Verify mandate -> "Verified on chain ✓ — 1 payments, 2 refusals"
+    const verified = await svc.metalVerify(job.id);
+    expect(verified.verification.verified).toBe(true);
+    expect(verified.verification.payments).toBe(1);
+    expect(verified.verification.refusals).toBe(2);
+    expect(verified.verification.summary).toBe("Verified on chain ✓ — 1 payments, 2 refusals");
   });
 });

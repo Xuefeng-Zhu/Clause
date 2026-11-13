@@ -1,17 +1,19 @@
 import { createGateway, type IssuingGateway } from "./airwallex/index.js";
-import { config, syncScopedCredentials } from "./config.js";
+import { config, resolveMetalMode, syncScopedCredentials } from "./config.js";
 import {
   SAMPLE_CHANGE_ORDER_EMAIL,
   SAMPLE_EXCEPTION_NOTE,
   SAMPLE_POLICY,
   SAMPLE_QUOTE,
 } from "./fixtures.js";
+import { createMetalRail, type MetalRail } from "./metal/index.js";
 import { ContractCardService } from "./milestones/service.js";
 import { DEMO_MCC_NAMES } from "./policy/mcc.js";
 import type { Job } from "./store/jobStore.js";
 import { SqlJobStore } from "./store/sqlJobStore.js";
 
 let mockGateway: IssuingGateway | undefined;
+let mockMetalRail: MetalRail | undefined;
 const store = new SqlJobStore();
 
 export async function getService(): Promise<ContractCardService> {
@@ -20,18 +22,28 @@ export async function getService(): Promise<ContractCardService> {
     config.awx.mode === "sandbox"
       ? createGateway()
       : (mockGateway ??= createGateway());
-  return new ContractCardService(gateway, store, config.demo.contractorEmail);
+  const metalMode = resolveMetalMode();
+  const metal =
+    metalMode === "testnet"
+      ? createMetalRail()
+      : (mockMetalRail ??= createMetalRail());
+  return new ContractCardService(gateway, store, config.demo.contractorEmail, metal);
 }
 
 export async function resetRuntime(): Promise<void> {
   await store.reset();
   mockGateway = undefined;
+  mockMetalRail?.reset?.();
+  mockMetalRail = undefined;
 }
 
 export function runtimeInfo() {
+  const metalMode = resolveMetalMode();
   return {
     airwallexMode: config.awx.mode,
     airwallexBaseUrl: config.awx.mode === "sandbox" ? config.awx.baseUrl : "in-memory mock",
+    metalMode,
+    metalNetwork: metalMode === "testnet" ? "Metal Testnet (*USDZ)" : "in-memory mock",
     model: config.anthropic.apiKey ? config.anthropic.model : "offline fixtures (no ANTHROPIC_API_KEY)",
   };
 }
@@ -98,6 +110,7 @@ export function summarize(job: Job) {
       basePerChargeCap: pt.per_charge_cap.amount,
       activeException: job.activeException ?? null,
       cardId: job.card_id ?? null,
+      metal: null,
       nextMilestone: null,
       pending: job.pending ?? null,
       problems: job.problems,
@@ -124,6 +137,22 @@ export function summarize(job: Job) {
     available: Math.round((released - spent) * 100) / 100,
     deadline: t.deadline.date,
     cardId: job.card_id ?? null,
+    metal: job.mandate
+      ? {
+          mode: job.mandate.mode,
+          mandateId: job.mandate.mandateId,
+          version: job.mandate.version,
+          payee: job.mandate.terms.payee,
+          cap: job.mandate.terms.cap,
+          capUsd: job.mandate.terms.capUsd,
+          budget: job.mandate.budget,
+          budgetUsd: job.mandate.terms.budgetUsd,
+          spent: job.mandate.spent,
+          occurrencesUsed: job.mandate.occurrencesUsed,
+          maxOccurrences: job.mandate.terms.maxOccurrences,
+          verified: job.mandate.verified ?? null,
+        }
+      : null,
     nextMilestone: next ? { id: next.id, name: next.name, amount: next.amount, evidenceRequired: next.evidence_required, clauseId: next.clause.clause_id } : null,
     pending: job.pending ?? null,
     problems: job.problems,
