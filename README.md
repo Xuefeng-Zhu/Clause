@@ -1,5 +1,7 @@
 # Clause
 
+[Open the live demo](https://clause-7j1k.onrender.com/)
+
 Clause turns a contractor quote or an approved business trip into an Airwallex virtual card with spending controls derived from the source document. Contract cards use a cumulative cap based on released milestones and pair with a Metal payout mandate. Trip cards use a trip budget, a per-charge cap, and manager-approved exceptions. Clause shows the source clauses behind each planned rule and cites the applicable clause when a decline maps to one.
 
 ## Quick start
