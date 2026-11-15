@@ -1,258 +1,107 @@
-# clause — Development Guide
+# Clause Development Guide
 
-This guide is for development-mode agents editing this app's source code. For app operations and tools, see AGENTS.md.
+## Local development
 
-## Tech Stack
+Use Node.js `>=22.22.0` and pnpm `10.29.1`. If Corepack is installed, `corepack pnpm` selects the pinned version. [Package manifest](package.json)
 
-- **Framework:** @agent-native/core + React Router v8 (framework mode)
-- **Frontend:** React 19, Vite, TailwindCSS, shadcn/ui
-- **Routing:** File-based via `flatRoutes()` — SSR shell + client rendering
-- **Backend:** Nitro (via @agent-native/core) — file-based API routing, server plugins, deploy-anywhere presets
-- **State:** SQL-backed (SSE for real-time updates)
-
-## Commands
-
-- **Dev:** `pnpm dev` (Vite dev server with both React Router + Nitro plugins)
-- **Build:** `pnpm build` (React Router build — client + SSR + Nitro server)
-- **Start:** `node .output/server/index.mjs` (production)
-
-## Directory Structure
-
-```
-app/                   # React frontend
-  root.tsx             # HTML shell + global providers
-  entry.client.tsx     # Client hydration entry
-  routes.ts            # Route config — flatRoutes()
-  routes/              # File-based page routes (auto-discovered)
-    _index.tsx         # / (chat page)
-  components/          # UI components
-  hooks/               # React hooks
-  lib/                 # Utilities (cn, etc)
-
-server/                # Nitro API server
-  routes/
-    api/               # Route-only endpoints (uploads, webhooks, OAuth, streaming)
-    [...page].get.ts   # SSR catch-all (delegates to React Router)
-    index.get.ts       # Root SSR route (re-exports the catch-all)
-  plugins/             # Server plugins (startup logic)
-  lib/                 # Shared server modules
-
-shared/                # Isomorphic code (imported by both client & server)
-
-actions/               # Shared app operations (defineAction; UI uses action hooks)
-  run.ts               # Script dispatcher
-  *.ts                 # Individual actions (pnpm action <name>)
-
-data/pglite/           # Local PGlite data directory
-
-react-router.config.ts # React Router framework config
-.agents/skills/        # Agent skills — detailed guidance for each rule
+```bash
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
-## Framework Basics
+Open the URL printed by `pnpm dev` (usually `http://localhost:8080`). Choose **Continue as local dev** when prompted. Clause uses PGlite at `data/pglite` by default. Both sample workflows are available without provider keys. Follow the contractor and travel-policy walkthroughs in the [README](README.md).
 
-**SSR-first framework, CSR-by-default content:** This app uses React Router v8 framework mode with `ssr: true`. But virtually every route renders only an SSR shell (loading spinner + meta tags). Normal app data fetching happens on the client via action hooks. Server-side data fetching is the exception — only used for public pages that need SEO/OG tags.
+Run the repository checks from the project root.
 
-## Chat-First Shape
-
-Agent-Native is the application framework and execution platform. AgentKit is
-its agent interaction and experience layer. Toolkit supplies the semantic
-composer, design-system primitives, and workspace UI used around the
-conversation.
-
-The `/` route is the app's primary AgentKit surface. Its default integration is:
-
-- `createAgentNativeAgentKitTransport()` from
-  `@agent-native/toolkit/app/chat/agentkit-chat` for the production Agent-Native
-  runtime.
-- `CoreAgentKitRoot` from `@agent-native/toolkit/app/chat/agentkit-chat` for one
-  managed controller, thread context, and the default action-widget renderer.
-- `AgentKitChat` for the reference transcript, composer, queue, approvals,
-  activities, and suggestions.
-- `CoreComposerRuntimeProvider` for Agent-Native composer capabilities.
-
-The surrounding Core app shell owns the full-height canvas, global navigation,
-durable thread routing, and route-level chrome. `AgentKitChat` owns the
-conversation column. Pass route controls through its `toolbar` prop. Use
-`slots` and `registry` on `AgentKitRoot` for presentation overrides without
-forking conversation state.
-
-Action UI is opt-in on each action through `chatUI.renderer`. `CoreAgentKitRoot`
-provides Core's `AgentKitActionWidget` in `slots.widget`; it resolves the
-declared React renderer from the stored tool input and result, then keeps the
-widget with its assistant message after activity rollup and thread reload. App
-renderers can register with `registerActionChatRenderer()` from
-`@agent-native/toolkit/app/chat/agentkit-chat` using the same renderer id declared by
-the action. Built-in Core renderers need no app registration.
-
-This template is also the canonical AgentKit reference surface. Develop and
-verify shared chat UX here first, then use domain apps such as Dispatch as
-consumer smoke tests. Queue behavior can be exercised by submitting follow-ups
-while a run is active. The shared composer remains mounted throughout these
-states. The route does not provide fallback suggestions: contextual next
-actions appear only when the agent injects them through AgentKit's structured
-`suggestions` input.
-
-For a headless app that later needs UI, this template is the intended landing
-zone: bring the existing actions over, keep their names stable, and let the chat
-call them before adding extra screens. For a custom agent backend, keep the app
-shell and implement `AgentTransport`, or adapt an existing Core
-`AgentChatRuntime` with `createAgentKitProtocolAdapter()` from
-`@agent-native/core/client/agent-chat`.
-
-### Package and scaffold path
-
-The Chat template depends on `@agent-native/core`,
-`@agent-native/agentkit`, and `@agent-native/toolkit` through workspace
-specifiers in this repository. The CLI resolves them for the generated shape:
-
-- A normal standalone scaffold receives published package ranges.
-- A local framework-development scaffold packages the local Core, AgentKit,
-  and Toolkit implementations. Missing compiled package exports are built
-  before the tarballs are created.
-- A workspacified Chat app inherits a concrete package version already pinned
-  by the workspace root. Otherwise it uses the compatible range supplied by
-  the running CLI.
-
-Do not replace these dependencies with direct `dist` paths or deep source
-imports. Install the generated manifest as written.
-
-### Migrate an older Core chat surface
-
-Core's `AssistantChat` remains supported as the AgentKit-backed surface, as do
-`AgentPanel`, `AgentSidebar`, `AgentChatSurface`, `AgentChatHome`, and
-`MultiTabAssistantChat`. Apps that only mount these components do not need to
-replace their chat UI.
-
-If your app used the removed `AssistantChat.createAdapter`, adapter helpers, or
-assistant-ui transcript/runtime APIs, follow the version-matched guide at
-`node_modules/@agent-native/core/docs/migrations/agentkit-chat.md`. It maps each
-removed API to `runtime`, `createTransport`, AgentKit slots, or a custom
-`AgentTransport`. Keep one conversation controller and stream owner.
-
-Widgets invoke stable action ids through the transport. Map them to the same
-`defineAction` surface used by the app and agent. Smart objects and client
-effects request host navigation or context changes. They do not bypass action
-validation, application-state helpers, request context, or ownable-data access
-checks.
-
-## Adding a Page
-
-Create a file in `app/routes/`. The filename determines the URL path:
-
-```
-app/routes/_index.tsx              → /
-app/routes/settings.tsx            → /settings
-app/routes/inbox.tsx               → /inbox
-app/routes/inbox.$threadId.tsx     → /inbox/:threadId
-app/routes/$id.tsx                 → /:id (dynamic param)
+```bash
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm agent-native:doctor
 ```
 
-Each route file exports a default component, optional `meta()`, and optional `HydrateFallback()`:
+`pnpm typecheck` checks the generated app types and TypeScript. The test suite exercises contractor, policy, and Metal behavior with local fixtures and mocks. The doctor currently reports `no-env-credentials` findings for direct environment reads in the provider configuration, smoke script, and related code. A local build can produce artifacts while reporting those findings and missing production configuration.
 
-```tsx
-import MyPage from "@/pages/MyPage";
+## Workspace and chat routes
 
-export function meta() {
-  return [{ title: "My Page" }];
-}
+Clause uses React Router v8 with file-based routes, React 19, and the Agent-Native Nitro backend. SSR renders the shell. The workspace loads job data through client action hooks.
 
-export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
-    </div>
-  );
-}
+| Route | Source and behavior |
+| --- | --- |
+| `/` | Sends the authenticated user to `/home`. [Sign-in landing](app/routes/_index.tsx) |
+| `/home` | Renders the workspace for contractor and travel-policy jobs. The selected job is reflected in `?job=<jobId>`. [Contract Jobs](app/routes/home.tsx) |
+| `/chat` | Opens a thread at `/chat/<threadId>`. [Chat entry](app/routes/chat._index.tsx) |
+| `/chat/<threadId>` | Mounts `ChatRouteContent`. [Full-screen chat](app/routes/chat.$threadId.tsx) |
 
-export default function MyPageRoute() {
-  return <MyPage />;
-}
+`app/components/layout/Layout.tsx` owns the app shell and contextual panel. On `/home`, `AgentInspector` wraps Toolkit's `AgentSidebar`. Full-screen chat uses `CoreAgentKitRoot`, `AgentKitChat`, and `CoreComposerRuntimeProvider` in `app/components/chat/ChatRouteContent.tsx`. Its transport comes from `@agent-native/core/client/agentkit-chat/transport`.
+
+```text
+app/components/clause/     Contract Jobs workspace, card controls, and demo UI
+app/components/chat/      Thread entry and full-screen AgentKit chat
+app/components/layout/    Shared navigation and AgentInspector
+actions/                  Typed operations for the UI, HTTP, and agent
+server/clause/            Terms, card rules, approvals, provider adapters, and job store
+server/db/                Drizzle schema and database entry point
+server/plugins/           Auth, agent prompt, registered secrets, and migrations
+samples/                  Bundled contractor and travel-policy inputs
+test/                     Contract, policy, UI, Metal, and model fallback tests
 ```
 
-**Do NOT fetch data server-side** in route loaders unless the page genuinely needs SEO/OG content. The standard pattern is: SSR renders the shell, client hydrates, and React reads/writes normal app data through actions with `useActionQuery` / `useActionMutation`.
+## Pages, actions, and data
 
-## Adding App Data
+Add pages in `app/routes/` and keep them under the existing app shell. Use `meta()` for page metadata and `HydrateFallback()` where a route needs a loading shell. Keep authenticated job data behind scoped actions.
 
-Normal app data starts as an action, not a custom route. Add `actions/<verb>-<resource>.ts` with `defineAction`, mark reads with `http: { method: "GET" }`, and call reads/writes from React with `useActionQuery` / `useActionMutation` from `@agent-native/core/client`. This keeps the UI and agent on one contract and lets mutating actions refresh action-backed queries automatically.
+Define an operation in `actions/<verb>-<resource>.ts` with `defineAction` from `@agent-native/core/action`. Set `http: { method: "GET" }` for read actions. React callers use `useActionQuery` for reads and `useActionMutation` for writes. The framework mounts HTTP-enabled actions at `/_agent-native/actions/<name>`. Use `pnpm action --help` for CLI usage. The agent guide lists Clause's action arguments and owner approval rules. [AGENTS.md](AGENTS.md)
 
-## Adding a Route-Only Endpoint
+Reserve `server/routes/api/` for protocol endpoints such as streaming, OAuth callbacks, webhooks, or multipart transfers. Keep shared logic in actions or service modules. Register startup behavior in `server/plugins/` through a Nitro plugin.
 
-Use `server/routes/api/` only for protocols that cannot be modeled as JSON actions: multipart uploads, streaming/SSE/WebSocket, webhooks, OAuth callbacks/redirects, public SEO/OG endpoints, or binary/static asset serving. Do not add `/api/*` routes for normal CRUD, data queries, or pass-through wrappers around actions; the action endpoint already exists at `/_agent-native/actions/:name`.
+The `cl_jobs` table stores jobs, including travel-policy jobs. `SqlJobStore` scopes reads and writes to the authenticated `owner_email`. Define SQL data with Drizzle's `pg-core` and use additive, PostgreSQL-compatible migrations in `server/plugins/db.ts`. The PGlite database exercises the same app schema locally.
 
-Each route-only endpoint still exports a default `defineEventHandler`, but keep shared app logic in actions or server libraries so agent and UI behavior do not fork.
+Use the version-matched framework docs and public package entry points for framework APIs. After installing dependencies, the local action runner can read the optional Extensions capability docs as well as the actions and auth guides.
 
-## Adding a Server Plugin
-
-Startup logic (auth, SSE, etc.) lives in `server/plugins/`. Use `defineNitroPlugin` from core:
-
-```ts
-import { defineNitroPlugin } from "@agent-native/core";
-
-export default defineNitroPlugin(async (nitroApp) => {
-  // Runs once at server startup
-});
+```bash
+pnpm action docs-search --slug actions-defining
+pnpm action docs-search --slug authentication
+pnpm action docs-search --slug extensions
 ```
 
-## Key Imports from `@agent-native/core`
+## Provider modes
 
-| Import                                       | Purpose                                                                    |
-| -------------------------------------------- | -------------------------------------------------------------------------- |
-| `defineNitroPlugin`                          | Define a server plugin (re-exported from Nitro)                            |
-| `createDefaultSSEHandler`                    | Create SSE endpoint for DB change events (server)                          |
-| `readAppState`, `writeAppState`              | Read/write application state (from `@agent-native/core/application-state`) |
-| `readSetting`, `writeSetting`                | Read/write settings (from `@agent-native/core/settings`)                   |
-| `defineEventHandler`, `readBody`, `getQuery` | H3 route handler utilities (re-exported)                                   |
-| `sendToAgentChat`                            | Send messages to agent from UI (client-side)                               |
-| `agentChat`                                  | Send messages to agent from scripts (server-side)                          |
+The mock Airwallex gateway, mock Metal rail, and offline parsing fixtures are the defaults on a clean setup. Airwallex and Metal modes are selected independently. The workspace's sandbox tools show the Airwallex mode, and the contractor mandate panel shows the Metal mode.
 
-## Adding an Action
+### Airwallex sandbox
 
-Create `actions/<verb>-<resource>.ts` with `defineAction`. Run with `pnpm action <name> --id value`; React callers should use `useActionQuery` for GET actions and `useActionMutation` for mutating actions, not a matching `/api/*` wrapper.
+Set `AWX_CLIENT_ID` and `AWX_API_KEY` in **Settings → API keys** to use the sandbox API. `AWX_CARDHOLDER_ID` can point to an existing sandbox `DELEGATE` cardholder. The server also accepts the Airwallex credentials as an environment fallback for local or deployment configuration. Use the registered secret store for user credentials. The provider adapter targets `api.sandbox.airwallex.com` and the demo uses simulated transactions.
 
-**Sending to agent chat from UI:**
+- For policy cards, the adapter first sends `PER_TRANSACTION` and `ALL_TIME` limits. If the request fails and includes both, it retries with only `PER_TRANSACTION`. Clause still records the planned trip budget. Inspect the sandbox card controls when verifying provider-side limits.
+- The two-hour exception raises the card-wide `PER_TRANSACTION` cap. Clause restores the base cap during a simulated charge, before the first simulated swipe after expiry or after the next approved simulated swipe. This happens through the app's simulation flow.
+- The sandbox uses its own clock. A future after-deadline simulation can temporarily change the sandbox card's active window and then attempt to restore it. Check the resulting card controls if this step fails.
+- After a successful contractor payout, Clause attempts a simulated deposit into an Airwallex sandbox global account. The payout can succeed even if the deposit simulation fails.
 
-```ts
-import { sendToAgentChat } from "@agent-native/core/client";
-sendToAgentChat({
-  message: "Generate something",
-  context: "...",
-  submit: true,
-});
-```
+For optional provider smoke testing, supply the sandbox credentials through the command environment and run `pnpm smoke:sandbox`. It issues a sandbox card, runs the contractor sequence, and closes the card at the end of a successful run. Routine checks and the README walkthroughs use the mocks on a clean setup.
 
-**Sending to agent chat from scripts:**
+### Metal testnet
 
-```ts
-import { agentChat } from "@agent-native/core";
-agentChat.submit("Generate something");
-```
+Set `METAL_MODE=testnet`, `METAL_RPC_URL`, and `METAL_ACCOUNT` together to select the testnet rail. The runtime uses the mock if any of these settings are missing. The server must have access to the following testnet resources.
 
-## Database & Environment Variables
+| Setting | Required resource |
+| --- | --- |
+| `METAL_ACCOUNT` | Testnet principal address with the test assets needed for the demo payout |
+| `METAL_RPC_URL` | Testnet RPC endpoint |
+| `METAL_CONTRACTOR_ADDRESS` | Intended contractor testnet wallet. Set it explicitly to avoid the built-in demo payee. |
+| `METAL_CLI_PREFIX` | Installation directory where `npx --prefix "$METAL_CLI_PREFIX" metal-agent` can run the CLI. Defaults to `/workspace/tools/metal`. |
+| `METAL_DIR` | Writable directory outside the repository containing `owner-key.json` and `owner-key.issuer.public.json`. Clause writes per-job mandate files under `jobs/`. Defaults to `/workspace/work/metal`. |
 
-Local development uses PGlite at `data/pglite`. For production and shared environments, set `DATABASE_URL` to a persistent hosted PostgreSQL database.
+Contract approval can bind a testnet mandate, and milestone approval can submit a testnet `*USDZ` payout. The Metal mock verifies its in-memory mandate even when the result says “Verified on chain.” In testnet mode the verifier invokes the CLI, and the reported refusal count can include locally recorded events.
 
-Real credential values belong only in local `.env` files, deployment configuration, or registered secrets/settings UI. Never commit, document, log, return, paste, or include real keys, tokens, webhook URLs, signing secrets, or private data in examples; use empty values or obvious placeholders.
+### Models and credentials
 
-When adding app data, define tables with Drizzle's `drizzle-orm/pg-core`
-exports and use Drizzle's query builder for reads/writes. Import framework
-sharing helpers such as `ownableColumns()` and `createSharesTable()` from
-`@agent-native/core/db/schema`. Keep SQL PostgreSQL-compatible and reserve raw
-SQL for additive migrations, health checks, or carefully scoped maintenance.
+`GEMINI_API_KEY` and `ANTHROPIC_API_KEY` are registered for the Clause document workflows. Gemini takes precedence when configured. Use the Agent-Native provider setup to enable chat. Bundled inputs can fall back to offline fixtures, and offline evidence review uses declared file kinds and a filename heuristic.
 
-| Variable        | Required                     | Description                                                                   |
-| --------------- | ---------------------------- | ----------------------------------------------------------------------------- |
-| `DATABASE_URL`  | Production yes, local dev no | PostgreSQL or PGlite database URL (local dev default: `pglite:./data/pglite`) |
-| `AUTH_DISABLED` | Optional                     | Set to `true` or `1` to skip login/signup (local dev/preview only)            |
+The current document model configuration is shared within the server process. A request without its own scoped key can inherit a previous user's value. Use dedicated test credentials in a single-user instance for provider demos while this behavior remains.
 
-## Extensions (Framework Feature)
+## Production database and authentication
 
-The framework provides **Extensions** — mini sandboxed Alpine.js apps that run inside iframes. Extensions let users (or the agent) create interactive widgets, dashboards, and utilities without modifying the app's source code. They appear in the sidebar under an "Extensions" section. (Distinct from LLM tools — the function-calling primitives the agent invokes.)
+For a standalone Node build, run `pnpm build` and then `pnpm start`. Configure the production environment with a persistent PostgreSQL `DATABASE_URL` and stable `BETTER_AUTH_SECRET` before deploying. The public auth URL is inferred by default, with `BETTER_AUTH_URL` available as an override. The Netlify build maps `NETLIFY_DATABASE_URL` to `DATABASE_URL` when supplied and runs `pnpm migrate:production` for production deployments. [Netlify configuration](netlify.toml)
 
-- **Creating extensions**: Via the sidebar "+" button, agent chat, or `POST /_agent-native/extensions`
-- **API calls**: Extensions use `extensionFetch()` (legacy alias `toolFetch`) which proxies requests through the server with `${keys.NAME}` secret injection
-- **Styling**: Extensions inherit the main app's Tailwind v4 theme automatically
-- **Sharing**: Private by default, shareable with org or specific users (same model as other ownable resources)
-- **Security**: Iframe sandbox + CSP + SSRF protection on the proxy
-
-See the `extensions` skill in `.agents/skills/extensions/SKILL.md` for full implementation details.
+The optional `AUTH_DISABLED=true` setting gives local or preview requests a shared identity. Use it only for isolated development or demo instances. Keep production secrets, provider keys, and Metal key material out of tracked files and logs. [Local environment example](.env.example)
